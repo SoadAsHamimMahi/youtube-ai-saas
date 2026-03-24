@@ -116,6 +116,30 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       throw new Error(`Agent not found (ID: ${agentId})`);
     }
 
+    const adminSupabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Verify Credits & Instant Run Limits
+    const { data: profile } = await adminSupabase
+      .from("profiles")
+      .select("credits, tier, instant_runs_used")
+      .eq("id", agent.user_id)
+      .single();
+
+    if (!profile) throw new Error("User profile not found.");
+
+    // 1. Credit Check (Universal)
+    if (profile.credits < 10) {
+      throw new Error("Insufficient Credits: You need at least 10 credits to run this agent.");
+    }
+
+    // 2. Instant Run Check (Free Tier specific)
+    if (profile.tier === 'free' && profile.instant_runs_used >= 2) {
+      throw new Error("Instant Trigger Limit Reached: Free users are limited to 2 manual runs every 7 days. Upgrade to Pro for unlimited instant triggers!");
+    }
+
       let results = [];
       if (agent.agent_type === 'job') {
         results = await getTopJobs(
@@ -136,11 +160,7 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
         }
       }
 
-      const adminSupabase = createSupabaseClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
-
+      // Update agent status
       await adminSupabase
         .from("monitoring_configs")
         .update({ 
@@ -150,13 +170,28 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
         })
         .eq("id", agentId);
 
-      // Add log entry with metadata (the results sent)
+      // Add log entry
       await adminSupabase.from('agent_logs').insert({
         agent_id: agentId,
         status: 'success',
-        message: `Manual run successful. Report sent to ${agent.recipient_email}.`,
+        message: `Manual run successful. Report sent to ${agent.recipient_email}. Cost: 10 Credits.`,
         metadata: { results }
       });
+
+      // Deduct 10 Credits & Increment Instant Run Count if Free
+      const profileUpdates: any = { 
+        credits: Math.max(0, profile.credits - 10),
+        updated_at: new Date().toISOString()
+      };
+      
+      if (profile.tier === 'free') {
+        profileUpdates.instant_runs_used = (profile.instant_runs_used || 0) + 1;
+      }
+
+      await adminSupabase
+        .from("profiles")
+        .update(profileUpdates)
+        .eq("id", agent.user_id);
 
     return { success: true };
   } catch (e: any) {

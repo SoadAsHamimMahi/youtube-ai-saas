@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { X, Plus, Loader2, Mail, Clock, Video, Tag, Briefcase, Play, Smartphone, Laptop } from 'lucide-react';
+import { X, Plus, Loader2, Mail, Clock, Video, Tag, Briefcase, Play, Smartphone, Laptop, Calendar } from 'lucide-react';
 import { createAgent } from '@/app/actions/agent-actions';
 import { cn } from "@/lib/utils";
 
@@ -9,9 +9,10 @@ interface AddAgentModalProps {
   onClose: () => void;
   onSuccess: () => void;
   defaultType?: 'youtube' | 'job';
+  userTier?: 'free' | 'pro';
 }
 
-export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube' }: AddAgentModalProps) {
+export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube', userTier = 'free' }: AddAgentModalProps) {
   const [agentType, setAgentType] = useState<'youtube' | 'job'>(defaultType);
   const [title, setTitle] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
@@ -19,6 +20,7 @@ export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube' }: A
   const [queries, setQueries] = useState<string[]>([]);
   const [time, setTime] = useState('06:00');
   const [maxVideos, setMaxVideos] = useState(10);
+  const [frequencyDays, setFrequencyDays] = useState(1);
   const [loading, setLoading] = useState(false);
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Dhaka');
 
@@ -51,6 +53,7 @@ export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube' }: A
       max_videos: maxVideos,
       is_active: true,
       timezone: timezone,
+      frequency_days: frequencyDays,
     });
 
     if (!result.success) {
@@ -171,7 +174,7 @@ export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube' }: A
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
                 <Clock className="w-3.5 h-3.5" /> Daily Time
@@ -183,6 +186,32 @@ export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube' }: A
                 onChange={(e) => setTime(e.target.value)}
                 required
               />
+            </div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
+                <Calendar className="w-3.5 h-3.5" /> Frequency
+                {userTier === 'free' && <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/20 text-primary border border-primary/20 text-[9px] translate-y-[-1px]">PRO</span>}
+              </label>
+              <select
+                className={cn(
+                  "w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-3 outline-none focus:border-primary/50 transition-all font-black appearance-none",
+                  userTier === 'free' ? "text-primary/70 cursor-not-allowed bg-black/20" : "text-white cursor-pointer"
+                )}
+                value={userTier === 'free' ? 3 : frequencyDays}
+                onChange={(e) => setFrequencyDays(Number(e.target.value))}
+                disabled={userTier === 'free'}
+                required
+              >
+                {userTier === 'free' ? (
+                  <option value={3} className="bg-background text-primary">Every 3 Days</option>
+                ) : (
+                  <>
+                    <option value={1} className="bg-background text-white">Daily</option>
+                    <option value={3} className="bg-background text-white">Every 3 Days</option>
+                    <option value={7} className="bg-background text-white">Weekly</option>
+                  </>
+                )}
+              </select>
             </div>
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">

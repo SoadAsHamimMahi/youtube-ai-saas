@@ -49,6 +49,7 @@ interface Agent {
   created_at: string;
   agent_type?: 'youtube' | 'job';
   location?: string;
+  frequency_days?: number;
 }
 
 interface AgentListViewProps {
@@ -90,11 +91,24 @@ export function AgentListView({ agentType, title, description, defaultModalType 
   const [previewingAgent, setPreviewingAgent] = useState<Agent | null>(null);
   const [totalSentCount, setTotalSentCount] = useState(0);
   const [timeUpdate, setTimeUpdate] = useState(0); 
+  const [userTier, setUserTier] = useState<'free' | 'pro'>('free');
+  const [credits, setCredits] = useState<number>(0);
+  const [instantRunsUsed, setInstantRunsUsed] = useState<number>(0);
 
   const fetchAgents = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
       
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase.from('profiles').select('tier, credits, instant_runs_used').eq('id', user.id).single();
+        if (profile) {
+          setUserTier(profile.tier);
+          setCredits(profile.credits);
+          setInstantRunsUsed(profile.instant_runs_used || 0);
+        }
+      }
+
       let query = supabase.from('monitoring_configs').select('*').order('created_at', { ascending: false });
       
       if (agentType === 'job') {
@@ -176,6 +190,7 @@ export function AgentListView({ agentType, title, description, defaultModalType 
           onClose={() => setIsModalOpen(false)}
           onSuccess={fetchAgents}
           defaultType={defaultModalType}
+          userTier={userTier}
         />
       )}
       {editingAgent && (
@@ -183,6 +198,7 @@ export function AgentListView({ agentType, title, description, defaultModalType 
           agent={editingAgent}
           onClose={() => setEditingAgent(null)}
           onSuccess={fetchAgents}
+          userTier={userTier}
         />
       )}
       {viewingLogsId && (
@@ -307,9 +323,29 @@ export function AgentListView({ agentType, title, description, defaultModalType 
                     </div>
                     {/* Manual Trigger */}
                     <button 
-                      onClick={() => handleRunNow(agent.id)}
+                      onClick={() => {
+                        if (userTier === 'free' && instantRunsUsed >= 2) {
+                          alert('Instant Trigger Limit Reached: Free users are limited to 2 manual runs every 7 days. Upgrade to Pro for unlimited instant triggers!');
+                          return;
+                        }
+                        if (credits < 10) {
+                          alert(`Insufficient Credits (${credits}/10). You need at least 10 credits to run an agent.`);
+                          return;
+                        }
+                        handleRunNow(agent.id);
+                      }}
                       disabled={!!runningId || !!deletingId}
-                      className="p-3 rounded-xl bg-primary/10 border border-primary/20 hover:bg-primary hover:text-white transition-all duration-500 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center min-w-[44px]"
+                      className={cn(
+                        "p-3 rounded-xl border transition-all duration-500 flex items-center justify-center min-w-[44px]",
+                        userTier === 'free' && instantRunsUsed >= 2
+                          ? "bg-white/5 border-white/10 text-gray-500 hover:cursor-not-allowed group-hover:scale-100"
+                          : "bg-primary/10 border-primary/20 hover:bg-primary hover:text-white group-hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed"
+                      )}
+                      title={
+                        userTier === 'free' 
+                          ? (instantRunsUsed >= 2 ? 'Out of free weekly instant runs (2/2)' : `Run Now (${2 - instantRunsUsed} free runs left this week)`) 
+                          : 'Run Agent Now (Costs 10 Credits)'
+                      }
                     >
                       {runningId === agent.id ? (
                         <Loader2 className="w-5 h-5 animate-spin text-primary group-hover:text-white" />
@@ -426,6 +462,9 @@ export function AgentListView({ agentType, title, description, defaultModalType 
                       <div className="flex items-center gap-1.5 text-[10px] text-gray-500 font-bold">
                         <Clock className="w-3 h-3 text-primary" />
                         <span>{agent.preferred_time?.slice(0, 5) || '00:00'}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hidden sm:inline-block">
+                          {agent.frequency_days === 7 ? 'Weekly' : agent.frequency_days === 3 ? '3 Days' : 'Daily'}
+                        </span>
                         <div className="flex items-center gap-1 opacity-60">
                           <Globe className="w-2.5 h-2.5" />
                           <span>{agent.timezone ? (agent.timezone === 'Asia/Dhaka' ? 'DHAKA' : agent.timezone.split('/').pop()) : 'UTC'}</span>

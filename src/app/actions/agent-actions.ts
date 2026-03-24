@@ -51,6 +51,21 @@ export async function deleteAgent(agentId: string) {
 export async function updateAgent(agentId: string, updates: any) {
   const supabase = await getSupabase();
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("tier")
+        .eq("id", user.id)
+        .single();
+      
+      // Enforce Free Tier restrictions on updates
+      if (profile?.tier === 'free') {
+        if (updates.frequency_days) updates.frequency_days = 3;
+        if (updates.max_videos) updates.max_videos = Math.min(updates.max_videos, 5);
+      }
+    }
+
     const { error } = await supabase
       .from("monitoring_configs")
       .update(updates)
@@ -68,6 +83,32 @@ export async function updateAgent(agentId: string, updates: any) {
 export async function createAgent(agent: any) {
   const supabase = await getSupabase();
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Unauthorized");
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("tier")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.tier === 'free') {
+      const { count } = await supabase
+        .from("monitoring_configs")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", user.id)
+        .eq("agent_type", agent.agent_type);
+      
+      if (count && count >= 1) {
+        throw new Error(`Free Tier Limit Reached: You can only have 1 ${agent.agent_type === 'job' ? 'Job' : 'YouTube'} agent. Please upgrade to Pro for unlimited agents.`);
+      }
+      
+      agent.frequency_days = 3;
+      agent.max_videos = Math.min(agent.max_videos || 5, 5);
+    }
+
+    agent.user_id = user.id;
+
     const { data, error } = await supabase
       .from("monitoring_configs")
       .insert([agent])

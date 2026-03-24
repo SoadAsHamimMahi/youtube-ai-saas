@@ -41,6 +41,39 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // 1b. Automated Credit Reset (Every 7 Days)
+  // This resets credits to tier defaults if now() >= last_reset_at + 7 days
+  try {
+    const { data: profilesToReset } = await supabase
+      .from('profiles')
+      .select('id, tier, last_reset_at')
+      .lte('last_reset_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+
+    if (profilesToReset && profilesToReset.length > 0) {
+      console.log(`♻️ Resetting credits for ${profilesToReset.length} users...`);
+      for (const profile of profilesToReset) {
+        const defaultCredits = profile.tier === 'pro' ? 1000 : 100;
+        
+        // Calculate next reset date precisely (last_reset + 7 days)
+        const oldReset = new Date(profile.last_reset_at);
+        const nextReset = new Date(oldReset.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        await supabase
+          .from('profiles')
+          .update({ 
+            credits: defaultCredits, 
+            instant_runs_used: 0,
+            last_reset_at: nextReset,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', profile.id);
+      }
+    }
+  } catch (resetErr: any) {
+    console.error('Credit Reset Error:', resetErr.message);
+    // Continue with agent runs even if reset fails
+  }
+
   try {
     // 2. Fetch all active agents
     const { data: agents, error } = await supabase
@@ -56,12 +89,18 @@ export async function GET(request: Request) {
     for (const agent of agents) {
       const tz = (agent.timezone as string) || 'Asia/Dhaka';
 
-      // Check if already ran today (within the last 18 hours)
+      // Check frequency schedule prevent early runs
       if (agent.last_run_at) {
         const lastRun = new Date(agent.last_run_at as string);
         const hoursSince = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
-        if (hoursSince < 18) {
-          results.push({ title: agent.title, status: 'skipped', reason: 'already_ran_today' });
+        
+        // Calculate required hours based on frequency (daily=1, 3 days=3, weekly=7)
+        // We subtract 6 hours from the total to give leeway for exact cron trigger timings and timezone boundaries
+        const frequencyDays = agent.frequency_days || 1;
+        const requiredHours = (frequencyDays * 24) - 6;
+
+        if (hoursSince < requiredHours) {
+          results.push({ title: agent.title, status: 'skipped', reason: `frequency_not_met_wait_${frequencyDays}_days` });
           continue;
         }
       }
@@ -80,46 +119,12 @@ export async function GET(request: Request) {
       if (isCorrectHour && isCorrectMinute) {
         console.log(`🚀 Triggering: ${agent.title} (type: ${agent.agent_type || 'youtube'})`);
         
-        // LOCK: Mark as running immediately to prevent duplicate triggers
-        await supabase
-          .from('monitoring_configs')
-          .update({ last_run_at: now.toISOString(), last_run_status: 'success' })
-          .eq('id', agent.id);
-
-        const logData = {
-          agent_id: agent.id,
-          status: 'success',
-          message: `Successfully sent ${agent.agent_type === 'job' ? 'Jobs' : 'YouTube'} report to ${agent.recipient_email}.`,
-          run_at: now.toISOString()
-        };
-
-        if (agent.agent_type === 'job') {
-          try {
-            const jobs = await getTopJobs(
-              agent.queries as string[],
-              (agent.location as string) || 'Remote',
-              agent.max_videos as number || 10
-            );
-            if (jobs.length > 0) {
-              await sendJobEmailReport(jobs, agent.recipient_email as string, agent.title as string);
-              await supabase.from('agent_logs').insert(logData);
-            } else {
-              await supabase.from('agent_logs').insert({ ...logData, message: 'No jobs found, email skipped.' });
-            }
-          } catch (jobErr: any) {
-            await supabase.from('monitoring_configs').update({ last_run_status: 'error', last_run_error: jobErr.message }).eq('id', agent.id);
-            await supabase.from('agent_logs').insert({ agent_id: agent.id, status: 'error', message: jobErr.message });
-          }
-        } else {
-          try {
-            await runAgentImmediately(agent.id as string, supabase);
-            await supabase.from('agent_logs').insert(logData);
-          } catch (ytErr: any) {
-            await supabase.from('agent_logs').insert({ agent_id: agent.id, status: 'error', message: ytErr.message });
-          }
+        try {
+          await runAgentImmediately(agent.id as string, supabase);
+          results.push({ title: agent.title, status: 'triggered', type: agent.agent_type || 'youtube' });
+        } catch (err: any) {
+           results.push({ title: agent.title, status: 'error', reason: err.message });
         }
-
-        results.push({ title: agent.title, status: 'triggered', type: agent.agent_type || 'youtube' });
       } else {
         results.push({
           title: agent.title,
