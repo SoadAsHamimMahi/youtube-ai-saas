@@ -60,8 +60,8 @@ export async function GET(request: Request) {
       });
       
       const parts = formatter.formatToParts(now);
-      const localHour = parseInt(parts.find(p => p.type === 'hour').value, 10);
-      const localMinute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+      const localHour = parseInt(parts.find(p => p.type === 'hour')!.value, 10);
+      const localMinute = parseInt(parts.find(p => p.type === 'minute')!.value, 10);
       
       const [prefH, prefM] = agent.preferred_time.split(':');
       const preferredHour = parseInt(prefH, 10);
