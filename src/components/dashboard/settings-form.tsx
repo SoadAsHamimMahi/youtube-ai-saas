@@ -21,7 +21,7 @@ export function SettingsForm({ profile }: { profile: any }) {
     } else {
       setMessage({ type: 'error', text: res.error || "Failed to update profile" });
     }
-    setLoading(null);
+    setLoading(false);
   };
 
   return (
