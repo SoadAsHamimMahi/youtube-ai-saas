@@ -2,6 +2,7 @@ import axios from "axios";
 import nodemailer from "nodemailer";
 import { createClient } from "@/lib/supabase-server";
 import { getTopJobs, sendJobEmailReport } from "@/lib/job-worker";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 
 async function getTopVideos(queries: string[], maxResults = 10) {
@@ -115,47 +116,59 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       throw new Error(`Agent not found (ID: ${agentId})`);
     }
 
-    if (agent.agent_type === 'job') {
-      const jobs = await getTopJobs(
-        agent.queries as string[],
-        (agent.location as string) || 'Remote',
-        agent.max_videos as number || 10
+      let results = [];
+      if (agent.agent_type === 'job') {
+        results = await getTopJobs(
+          agent.queries as string[],
+          (agent.location as string) || 'Remote',
+          agent.max_videos as number || 10
+        );
+        if (results.length > 0) {
+          await sendJobEmailReport(results, agent.recipient_email as string, agent.title as string);
+        }
+      } else {
+        const apiKey = process.env.YOUTUBE_API_KEY;
+        if (!apiKey) throw new Error("YOUTUBE_API_KEY missing in .env.local");
+        results = await getTopVideos(agent.queries, agent.max_videos || 10);
+        
+        if (results.length > 0) {
+          await sendEmailReport(results, agent.recipient_email, agent.title);
+        }
+      }
+
+      const adminSupabase = createSupabaseClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
       );
-      if (jobs.length > 0) {
-        await sendJobEmailReport(jobs, agent.recipient_email as string, agent.title as string);
-      }
-    } else {
-      const apiKey = process.env.YOUTUBE_API_KEY;
-      if (!apiKey) throw new Error("YOUTUBE_API_KEY missing in .env.local");
-      const videos = await getTopVideos(agent.queries, agent.max_videos || 10);
-      
-      if (videos.length > 0) {
-        await sendEmailReport(videos, agent.recipient_email, agent.title);
-      }
-    }
 
-    await supabase
-      .from("monitoring_configs")
-      .update({ 
-        last_run_at: new Date().toISOString(), 
-        last_run_status: 'success',
-        last_run_error: null
-      })
-      .eq("id", agentId);
+      await adminSupabase
+        .from("monitoring_configs")
+        .update({ 
+          last_run_at: new Date().toISOString(), 
+          last_run_status: 'success',
+          last_run_error: null
+        })
+        .eq("id", agentId);
 
-    // Add log entry
-    await supabase.from('agent_logs').insert({
-      agent_id: agentId,
-      status: 'success',
-      message: `Manual run successful. Report sent to ${agent.recipient_email}.`
-    });
+      // Add log entry with metadata (the results sent)
+      await adminSupabase.from('agent_logs').insert({
+        agent_id: agentId,
+        status: 'success',
+        message: `Manual run successful. Report sent to ${agent.recipient_email}.`,
+        metadata: { results }
+      });
 
     return { success: true };
   } catch (e: any) {
     console.error("Manual Run Error:", e.message);
     
+    const adminSupabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     // Attempt status update even on failure
-    await supabase
+    await adminSupabase
       .from("monitoring_configs")
       .update({ 
         last_run_at: new Date().toISOString(), 
@@ -165,7 +178,7 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       .eq("id", agentId);
 
     // Add error log
-    await supabase.from('agent_logs').insert({
+    await adminSupabase.from('agent_logs').insert({
       agent_id: agentId,
       status: 'error',
       message: e.message

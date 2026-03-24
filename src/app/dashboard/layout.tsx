@@ -13,7 +13,7 @@ export default function DashboardLayout({
         <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[150px] pointer-events-none rounded-full" />
         <div className="fixed bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-accent/5 blur-[120px] pointer-events-none rounded-full" />
         
-        <div className="relative z-10 max-w-7xl mx-auto" suppressHydrationWarning>
+        <div className="relative z-10 max-w-[1600px] mx-auto" suppressHydrationWarning>
           {children}
         </div>
       </main>

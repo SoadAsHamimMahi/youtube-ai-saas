@@ -88,6 +88,7 @@ export function AgentListView({ agentType, title, description, defaultModalType 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewingLogsId, setViewingLogsId] = useState<{id: string, title: string} | null>(null);
   const [previewingAgent, setPreviewingAgent] = useState<Agent | null>(null);
+  const [totalSentCount, setTotalSentCount] = useState(0);
   const [timeUpdate, setTimeUpdate] = useState(0); 
 
   const fetchAgents = async (showLoading = true) => {
@@ -107,6 +108,15 @@ export function AgentListView({ agentType, title, description, defaultModalType 
       if (error) throw error;
       setAgents(data || []);
       setError(null);
+
+      // Fetch accurate historical success count
+      const { count } = await supabase
+        .from('agent_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'success');
+      
+      if (count !== null) setTotalSentCount(count);
+      
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -158,7 +168,6 @@ export function AgentListView({ agentType, title, description, defaultModalType 
   };
 
   const activeCount = agents.filter(a => a.is_active).length;
-  const successCount = agents.filter(a => a.last_run_status === 'success').length;
 
   return (
     <div className="space-y-10" suppressHydrationWarning>
@@ -193,54 +202,59 @@ export function AgentListView({ agentType, title, description, defaultModalType 
 
 
       {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
-          <h2 className="text-3xl font-extrabold tracking-tight">{title}</h2>
-          <p className="text-gray-500 font-medium">{description}</p>
+          <h2 className="text-4xl font-black tracking-tighter font-outfit text-white">
+            {title}
+          </h2>
+          <p className="text-gray-400 font-bold tracking-tight">{description}</p>
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 px-6 py-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold transition-all shadow-lg shadow-primary/20"
+          className="flex items-center gap-2 px-8 py-4 rounded-2xl bg-primary hover:bg-primary-hover text-white font-black transition-all shadow-2xl shadow-primary/30 hover:translate-y-[-2px] active:scale-95"
         >
           <PlusCircle className="w-5 h-5" />
           Add New Agent
         </button>
       </header>
 
+
       {/* Stats */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[
-          { label: "Active Agents", value: activeCount.toString(), icon: Zap, color: "text-yellow-500" },
-          { label: "Total Reports Sent", value: successCount.toString(), icon: Send, color: "text-green-500" },
-          { label: "Emails Configured", value: agents.filter(a => a.recipient_email).length.toString(), icon: Mail, color: "text-primary" },
+          { label: "Active Agents", value: activeCount.toString(), icon: Zap, color: "text-amber-400", bg: "bg-amber-400/10" },
+          { label: "Total Reports Sent", value: totalSentCount.toString(), icon: Send, color: "text-emerald-400", bg: "bg-emerald-400/10" },
+          { label: "Emails Configured", value: agents.filter(a => a.recipient_email).length.toString(), icon: Mail, color: "text-indigo-400", bg: "bg-indigo-400/10" },
         ].map((stat, i) => (
-          <div key={i} className="glass p-6 rounded-2xl flex items-center justify-between group hover:bg-surface-hover transition-all duration-300">
-            <div>
-              <p className="text-sm text-gray-400 font-semibold mb-1 uppercase tracking-wider">{stat.label}</p>
-              <p className="text-4xl font-black">{stat.value}</p>
+          <div key={i} className="glass p-8 rounded-3xl flex items-center justify-between group hover:bg-white/[0.04] transition-all duration-500 border border-white/5 shadow-2xl">
+            <div className="space-y-1">
+              <p className="text-[10px] text-gray-400 font-black mb-1 uppercase tracking-[0.2em]">{stat.label}</p>
+              <p className="text-5xl font-black font-outfit tracking-tighter">{stat.value}</p>
             </div>
-            <div className={cn("p-4 rounded-xl bg-surface border border-border-glass transition-transform group-hover:scale-110", stat.color)}>
-              <stat.icon className="w-6 h-6" />
+            <div className={cn("p-5 rounded-2xl border border-white/10 transition-all duration-500 group-hover:scale-110", stat.bg, stat.color)}>
+              <stat.icon className="w-8 h-8" />
             </div>
           </div>
         ))}
       </section>
 
+
       {/* Agents */}
       <section className="space-y-6 pb-20">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-bold flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+          <h3 className="text-2xl font-black font-outfit tracking-tight flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-primary shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-pulse" />
             Monitoring Agents ({agents.length})
           </h3>
           <button 
             onClick={() => fetchAgents()} 
-            className="text-xs font-bold text-gray-500 hover:text-primary transition-colors flex items-center gap-2 group"
+            className="text-[10px] font-black tracking-widest uppercase text-gray-500 hover:text-primary transition-all flex items-center gap-2 group bg-white/5 px-4 py-2 rounded-full border border-white/5"
           >
-            <RefreshCcw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" />
+            <RefreshCcw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-700" />
             Refresh Data
           </button>
         </div>
+
 
         {error && (
           <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center gap-4 text-red-500">
@@ -276,105 +290,100 @@ export function AgentListView({ agentType, title, description, defaultModalType 
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {agents.map((agent) => (
-              <div key={agent.id} className="glass rounded-2xl p-6 flex flex-col h-full border border-border-glass hover:border-primary/30 group transition-all duration-500 relative overflow-hidden">
+              <div key={agent.id} className="glass rounded-[2rem] p-10 flex flex-col h-full border border-white/5 hover:border-primary/40 group transition-all duration-700 relative overflow-hidden group-hover:translate-y-[-4px] shadow-2xl">
                 {/* Background Shimmer Effect */}
                 {agent.is_active && (
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 blur-3xl group-hover:bg-primary/10 transition-colors" />
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-[80px] pointer-events-none group-hover:bg-primary/20 transition-all duration-700" />
                 )}
 
                 {/* Header Actions */}
-                <div className="flex justify-between items-start mb-5">
-                  <div className="flex gap-2">
+                <div className="flex sm:flex-row flex-col justify-between items-start sm:items-center gap-6 mb-6 relative z-10 w-full">
+                  <div className="flex flex-wrap items-center gap-2 flex-1">
                     <div className={cn(
-                      "p-2.5 rounded-lg bg-surface border border-border-glass shadow-inner transition-transform duration-500",
-                      agent.agent_type === 'job' ? 'text-green-400' : 'text-red-500'
+                      "p-3 rounded-xl bg-white/5 border border-white/10 shadow-lg transition-all duration-500 group-hover:scale-110",
+                      agent.agent_type === 'job' ? 'text-emerald-400' : 'text-rose-500'
                     )}>
-                      {agent.agent_type === 'job' ? <Briefcase className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                      {agent.agent_type === 'job' ? <Briefcase className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                     </div>
                     {/* Manual Trigger */}
                     <button 
                       onClick={() => handleRunNow(agent.id)}
                       disabled={!!runningId || !!deletingId}
-                      className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 hover:bg-primary hover:text-white transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center min-w-[40px]"
+                      className="p-3 rounded-xl bg-primary/10 border border-primary/20 hover:bg-primary hover:text-white transition-all duration-500 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center min-w-[44px]"
                     >
                       {runningId === agent.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-primary group-hover:text-white" />
+                        <Loader2 className="w-5 h-5 animate-spin text-primary group-hover:text-white" />
                       ) : (
-                        <Send className="w-4 h-4" />
+                        <Send className="w-5 h-5" />
                       )}
                     </button>
                     {/* Delete Agent */}
                     <button 
                       onClick={() => handleDelete(agent.id)}
                       disabled={!!runningId || !!deletingId}
-                      className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all duration-500 disabled:opacity-30 disabled:cursor-not-allowed"
                       title="Delete Agent"
                     >
                       {deletingId === agent.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Loader2 className="w-5 h-5 animate-spin" />
                       ) : (
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-5 h-5" />
                       )}
                     </button>
                     {/* Edit Agent */}
                     <button
                       onClick={() => setEditingAgent(agent)}
                       disabled={!!runningId || !!deletingId}
-                      className="p-2.5 rounded-lg bg-surface border border-border-glass hover:bg-surface-hover hover:text-white transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white transition-all duration-500 disabled:opacity-30 disabled:cursor-not-allowed"
                       title="Edit Agent"
                     >
-                      <Pencil className="w-4 h-4 text-gray-400" />
+                      <Pencil className="w-5 h-5 text-gray-400" />
                     </button>
                     {/* View Logs */}
                     <button 
                       onClick={() => setViewingLogsId({id: agent.id, title: agent.title})}
-                      className="p-2.5 rounded-lg bg-surface border border-border-glass hover:bg-primary/20 hover:text-primary transition-all duration-300"
+                      className="p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-indigo-500/20 hover:text-primary transition-all duration-500"
                       title="View Run History"
                     >
-                      <History className="w-4 h-4 text-gray-400" />
+                      <History className="w-5 h-5 text-gray-400" />
                     </button>
                     {/* Preview Email */}
                     <button 
                       onClick={() => setPreviewingAgent(agent)}
-                      className="p-2.5 rounded-lg bg-surface border border-border-glass hover:bg-primary/20 hover:text-primary transition-all duration-300"
+                      className="p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-indigo-500/20 hover:text-primary transition-all duration-500"
                       title="Preview Email Content"
                     >
-                      <Eye className="w-4 h-4 text-gray-400" />
+                      <Eye className="w-5 h-5 text-gray-400" />
                     </button>
                   </div>
 
-
-
                   <div className="flex flex-col items-end gap-1.5">
                     <div className={cn(
-                      "px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-sm",
-                      agent.is_active ? "border-green-500/20 bg-green-500/10 text-green-500" : "border-gray-500/20 bg-gray-500/10 text-gray-500"
+                      "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all duration-500",
+                      agent.is_active 
+                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.1)]" 
+                        : "border-gray-500/20 bg-gray-500/10 text-gray-500"
                     )}>
                       {agent.is_active ? 'Active' : 'Paused'}
                     </div>
-                    {/* Final Run Feedback Dot */}
-                    {agent.last_run_status && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-bold text-gray-600 uppercase tracking-tighter">Status</span>
-                        <div className={cn(
-                          "w-1.5 h-1.5 rounded-full",
-                          agent.last_run_status === 'success' ? "bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]"
-                        )} />
-                      </div>
-                    )}
                   </div>
                 </div>
 
                 {/* Content */}
-                <h4 className="text-lg font-bold mb-3 group-hover:text-primary transition-colors pr-4">{agent.title}</h4>
+                <div className="relative z-10 space-y-3">
+                  <h4 className="text-xl font-black font-outfit text-white group-hover:text-primary transition-colors tracking-tight leading-tight">
+                    {agent.title}
+                  </h4>
 
-                <div className="flex flex-wrap gap-1.5 mb-6 flex-1">
-                  {agent.queries.map((q, i) => (
-                    <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-surface text-gray-400 font-bold border border-border-glass border-white/5">
-                      {q}
-                    </span>
-                  ))}
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {agent.queries.map((q, i) => (
+                      <span key={i} className="text-[10px] px-3 py-1 rounded-lg bg-white/5 text-gray-400 font-black border border-white/5 uppercase tracking-wider group-hover:bg-white/10 transition-colors">
+                        {q}
+                      </span>
+                    ))}
+                  </div>
                 </div>
+
 
                 {/* Footer Status Display */}
                 <div className="space-y-3.5 pt-4 border-t border-border-glass">
