@@ -25,6 +25,14 @@ import { supabase } from "@/lib/supabase";
 import { AddAgentModal } from "@/components/dashboard/add-agent-modal";
 import { EditAgentModal } from "@/components/dashboard/edit-agent-modal";
 import { triggerAgentRun, deleteAgent } from "@/app/actions/agent-actions";
+import { AgentLogsModal } from "@/components/dashboard/agent-logs-modal";
+import { EmailPreviewModal } from "@/components/dashboard/email-preview-modal";
+import { 
+  Eye,
+  History
+} from "lucide-react";
+
+
 
 interface Agent {
   id: string;
@@ -36,6 +44,7 @@ interface Agent {
   is_active: boolean;
   last_run_at: string | null;
   last_run_status: 'success' | 'error' | null;
+  last_run_error: string | null;
   timezone: string;
   created_at: string;
   agent_type?: 'youtube' | 'job';
@@ -77,6 +86,8 @@ export function AgentListView({ agentType, title, description, defaultModalType 
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [viewingLogsId, setViewingLogsId] = useState<{id: string, title: string} | null>(null);
+  const [previewingAgent, setPreviewingAgent] = useState<Agent | null>(null);
   const [timeUpdate, setTimeUpdate] = useState(0); 
 
   const fetchAgents = async (showLoading = true) => {
@@ -165,6 +176,21 @@ export function AgentListView({ agentType, title, description, defaultModalType 
           onSuccess={fetchAgents}
         />
       )}
+      {viewingLogsId && (
+        <AgentLogsModal
+          agentId={viewingLogsId.id}
+          agentTitle={viewingLogsId.title}
+          onClose={() => setViewingLogsId(null)}
+        />
+      )}
+      {previewingAgent && (
+        <EmailPreviewModal
+          agent={previewingAgent}
+          onClose={() => setPreviewingAgent(null)}
+        />
+      )}
+
+
 
       {/* Header */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -299,7 +325,25 @@ export function AgentListView({ agentType, title, description, defaultModalType 
                     >
                       <Pencil className="w-4 h-4 text-gray-400" />
                     </button>
+                    {/* View Logs */}
+                    <button 
+                      onClick={() => setViewingLogsId({id: agent.id, title: agent.title})}
+                      className="p-2.5 rounded-lg bg-surface border border-border-glass hover:bg-primary/20 hover:text-primary transition-all duration-300"
+                      title="View Run History"
+                    >
+                      <History className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {/* Preview Email */}
+                    <button 
+                      onClick={() => setPreviewingAgent(agent)}
+                      className="p-2.5 rounded-lg bg-surface border border-border-glass hover:bg-primary/20 hover:text-primary transition-all duration-300"
+                      title="Preview Email Content"
+                    >
+                      <Eye className="w-4 h-4 text-gray-400" />
+                    </button>
                   </div>
+
+
 
                   <div className="flex flex-col items-end gap-1.5">
                     <div className={cn(
@@ -336,16 +380,25 @@ export function AgentListView({ agentType, title, description, defaultModalType 
                 <div className="space-y-3.5 pt-4 border-t border-border-glass">
                   {/* LIVE COUNTDOWN / RELATIVE TIME */}
                   {agent.last_run_at ? (
-                    <div className={cn(
-                      "flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-black border transition-colors",
-                      agent.last_run_status === 'success' 
-                        ? "bg-green-500/5 border-green-500/10 text-green-500" 
-                        : "bg-red-500/5 border-red-500/10 text-red-500"
-                    )}>
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span className="animate-in fade-in slide-in-from-left-1 duration-500">
-                        Email sent {typeof window !== 'undefined' ? getRelativeTime(agent.last_run_at) : 'recently'}
-                      </span>
+                    <div className="space-y-2">
+                      <div className={cn(
+                        "flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-black border transition-colors",
+                        agent.last_run_status === 'success' 
+                          ? "bg-green-500/5 border-green-500/10 text-green-500" 
+                          : "bg-red-500/5 border-red-500/10 text-red-500"
+                      )}>
+                        {agent.last_run_status === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                        <span className="animate-in fade-in slide-in-from-left-1 duration-500">
+                          {agent.last_run_status === 'success' ? 'Email sent' : 'Failed'} {typeof window !== 'undefined' ? getRelativeTime(agent.last_run_at) : 'recently'}
+                        </span>
+                      </div>
+                      
+                      {agent.last_run_status === 'error' && agent.last_run_error && (
+                        <div className="flex items-start gap-1.5 p-2 rounded bg-red-500/5 border border-red-500/10 text-[10px] text-red-400 font-medium leading-tight">
+                          <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span>{agent.last_run_error}</span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-bold bg-white/5 border border-white/5 text-gray-500 italic">

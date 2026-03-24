@@ -86,19 +86,37 @@ export async function GET(request: Request) {
           .update({ last_run_at: now.toISOString(), last_run_status: 'success' })
           .eq('id', agent.id);
 
+        const logData = {
+          agent_id: agent.id,
+          status: 'success',
+          message: `Successfully sent ${agent.agent_type === 'job' ? 'Jobs' : 'YouTube'} report to ${agent.recipient_email}.`,
+          run_at: now.toISOString()
+        };
+
         if (agent.agent_type === 'job') {
-          // Job Agent: fetch from Adzuna and send job email
-          const jobs = await getTopJobs(
-            agent.queries as string[],
-            (agent.location as string) || 'Remote',
-            agent.max_videos as number || 10
-          );
-          if (jobs.length > 0) {
-            await sendJobEmailReport(jobs, agent.recipient_email as string, agent.title as string);
+          try {
+            const jobs = await getTopJobs(
+              agent.queries as string[],
+              (agent.location as string) || 'Remote',
+              agent.max_videos as number || 10
+            );
+            if (jobs.length > 0) {
+              await sendJobEmailReport(jobs, agent.recipient_email as string, agent.title as string);
+              await supabase.from('agent_logs').insert(logData);
+            } else {
+              await supabase.from('agent_logs').insert({ ...logData, message: 'No jobs found, email skipped.' });
+            }
+          } catch (jobErr: any) {
+            await supabase.from('monitoring_configs').update({ last_run_status: 'error', last_run_error: jobErr.message }).eq('id', agent.id);
+            await supabase.from('agent_logs').insert({ agent_id: agent.id, status: 'error', message: jobErr.message });
           }
         } else {
-          // Default: YouTube Agent
-          await runAgentImmediately(agent.id as string, supabase);
+          try {
+            await runAgentImmediately(agent.id as string, supabase);
+            await supabase.from('agent_logs').insert(logData);
+          } catch (ytErr: any) {
+            await supabase.from('agent_logs').insert({ agent_id: agent.id, status: 'error', message: ytErr.message });
+          }
         }
 
         results.push({ title: agent.title, status: 'triggered', type: agent.agent_type || 'youtube' });

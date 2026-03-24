@@ -138,9 +138,17 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       .from("monitoring_configs")
       .update({ 
         last_run_at: new Date().toISOString(), 
-        last_run_status: 'success' 
+        last_run_status: 'success',
+        last_run_error: null
       })
       .eq("id", agentId);
+
+    // Add log entry
+    await supabase.from('agent_logs').insert({
+      agent_id: agentId,
+      status: 'success',
+      message: `Manual run successful. Report sent to ${agent.recipient_email}.`
+    });
 
     return { success: true };
   } catch (e: any) {
@@ -151,9 +159,17 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       .from("monitoring_configs")
       .update({ 
         last_run_at: new Date().toISOString(), 
-        last_run_status: 'error' 
+        last_run_status: 'error',
+        last_run_error: e.message
       })
       .eq("id", agentId);
+
+    // Add error log
+    await supabase.from('agent_logs').insert({
+      agent_id: agentId,
+      status: 'error',
+      message: e.message
+    });
       
     throw e;
   }
