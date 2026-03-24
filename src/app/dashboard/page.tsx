@@ -17,7 +17,8 @@ import {
   Trash2,
   RefreshCcw,
   Globe,
-  Pencil
+  Pencil,
+  Briefcase
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -37,6 +38,8 @@ interface Agent {
   last_run_status: 'success' | 'error' | null;
   timezone: string;
   created_at: string;
+  agent_type?: 'youtube' | 'job';
+  location?: string;
 }
 
 /**
@@ -248,8 +251,8 @@ export default function DashboardPage() {
                 {/* Header Actions */}
                 <div className="flex justify-between items-start mb-5">
                   <div className="flex gap-2">
-                    <div className="p-2.5 rounded-lg bg-surface border border-border-glass shadow-inner transition-transform duration-500">
-                      <Play className="w-4 h-4 text-red-500" />
+                    <div className={`p-2.5 rounded-lg bg-surface border border-border-glass shadow-inner transition-transform duration-500 ${agent.agent_type === 'job' ? 'text-green-400' : 'text-red-500'}`}>
+                      {agent.agent_type === 'job' ? <Briefcase className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                     </div>
                     {/* Manual Trigger */}
                     <button 
@@ -357,7 +360,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] text-gray-500 font-bold">
                         <Video className="w-3 h-3 text-primary" />
-                        <span>{agent.max_videos} vids</span>
+                        <span>{agent.max_videos} {agent.agent_type === 'job' ? 'jobs' : 'vids'}</span>
                       </div>
                     </div>
                   </div>

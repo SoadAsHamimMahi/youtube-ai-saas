@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { runAgentImmediately } from '@/lib/agent-worker';
+import { getTopJobs, sendJobEmailReport } from '@/lib/job-worker';
 
 // Use Service Role Key to bypass RLS for background tasks
 const supabase = createClient(
@@ -77,18 +78,30 @@ export async function GET(request: Request) {
       const isCorrectMinute = Math.abs(localMinute - preferredMinute) <= 10;
 
       if (isCorrectHour && isCorrectMinute) {
-        console.log(`🚀 Triggering: ${agent.title}`);
+        console.log(`🚀 Triggering: ${agent.title} (type: ${agent.agent_type || 'youtube'})`);
         
         // LOCK: Mark as running immediately to prevent duplicate triggers
-        // This is done BEFORE sending the email so if cron fires again in 5 min,
-        // the "already_ran_today" check will catch it.
         await supabase
           .from('monitoring_configs')
           .update({ last_run_at: now.toISOString(), last_run_status: 'success' })
           .eq('id', agent.id);
 
-        await runAgentImmediately(agent.id as string, supabase);
-        results.push({ title: agent.title, status: 'triggered' });
+        if (agent.agent_type === 'job') {
+          // Job Agent: fetch from Adzuna and send job email
+          const jobs = await getTopJobs(
+            agent.queries as string[],
+            (agent.location as string) || 'Remote',
+            agent.max_videos as number || 10
+          );
+          if (jobs.length > 0) {
+            await sendJobEmailReport(jobs, agent.recipient_email as string, agent.title as string);
+          }
+        } else {
+          // Default: YouTube Agent
+          await runAgentImmediately(agent.id as string, supabase);
+        }
+
+        results.push({ title: agent.title, status: 'triggered', type: agent.agent_type || 'youtube' });
       } else {
         results.push({
           title: agent.title,
