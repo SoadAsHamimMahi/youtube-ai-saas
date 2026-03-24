@@ -7,12 +7,13 @@ import { X, Plus, Loader2, Mail, Clock, Video, Tag, Briefcase, MapPin, MonitorPl
 interface AddAgentModalProps {
   onClose: () => void;
   onSuccess: () => void;
+  defaultType?: 'youtube' | 'job';
 }
 
 type AgentType = 'youtube' | 'job';
 
-export function AddAgentModal({ onClose, onSuccess }: AddAgentModalProps) {
-  const [agentType, setAgentType] = useState<AgentType>('youtube');
+export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube' }: AddAgentModalProps) {
+  const [agentType, setAgentType] = useState<AgentType>(defaultType);
   const [title, setTitle] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [query, setQuery] = useState('');

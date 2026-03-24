@@ -1,6 +1,7 @@
 import axios from "axios";
 import nodemailer from "nodemailer";
 import { createClient } from "@/lib/supabase-server";
+import { getTopJobs, sendJobEmailReport } from "@/lib/job-worker";
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 const GMAIL_USER = process.env.GMAIL_USER;
@@ -113,12 +114,22 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       throw new Error(`Agent not found (ID: ${agentId})`);
     }
 
-    if (!YOUTUBE_API_KEY) throw new Error("YOUTUBE_API_KEY missing in .env.local");
-
-    const videos = await getTopVideos(agent.queries, agent.max_videos || 10);
-    
-    if (videos.length > 0) {
-      await sendEmailReport(videos, agent.recipient_email, agent.title);
+    if (agent.agent_type === 'job') {
+      const jobs = await getTopJobs(
+        agent.queries as string[],
+        (agent.location as string) || 'Remote',
+        agent.max_videos as number || 10
+      );
+      if (jobs.length > 0) {
+        await sendJobEmailReport(jobs, agent.recipient_email as string, agent.title as string);
+      }
+    } else {
+      if (!YOUTUBE_API_KEY) throw new Error("YOUTUBE_API_KEY missing in .env.local");
+      const videos = await getTopVideos(agent.queries, agent.max_videos || 10);
+      
+      if (videos.length > 0) {
+        await sendEmailReport(videos, agent.recipient_email, agent.title);
+      }
     }
 
     await supabase

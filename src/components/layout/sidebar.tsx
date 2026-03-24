@@ -7,14 +7,16 @@ import {
   Clock, 
   Settings, 
   Play,
+  Briefcase,
   PlusCircle,
   LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
-  { name: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { name: "My Agents", icon: Play, href: "/dashboard/agents" },
+  { name: "Overview", icon: LayoutDashboard, href: "/dashboard" },
+  { name: "YouTube Monitors", icon: Play, href: "/dashboard/youtube" },
+  { name: "Job Finders", icon: Briefcase, href: "/dashboard/jobs" },
   { name: "Schedules", icon: Clock, href: "/dashboard/schedules" },
   { name: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
