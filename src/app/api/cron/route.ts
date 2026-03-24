@@ -78,6 +78,15 @@ export async function GET(request: Request) {
 
       if (isCorrectHour && isCorrectMinute) {
         console.log(`🚀 Triggering: ${agent.title}`);
+        
+        // LOCK: Mark as running immediately to prevent duplicate triggers
+        // This is done BEFORE sending the email so if cron fires again in 5 min,
+        // the "already_ran_today" check will catch it.
+        await supabase
+          .from('monitoring_configs')
+          .update({ last_run_at: now.toISOString(), last_run_status: 'success' })
+          .eq('id', agent.id);
+
         await runAgentImmediately(agent.id as string, supabase);
         results.push({ title: agent.title, status: 'triggered' });
       } else {
