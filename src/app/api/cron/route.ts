@@ -10,6 +10,26 @@ const supabase = createClient(
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
+function getLocalHourAndMinute(timezone: string): { hour: number; minute: number } {
+  try {
+    const now = new Date();
+    // Format as "HH:MM" in the given timezone
+    const timeStr = now.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: timezone,
+    });
+    // timeStr is always "HH:MM" e.g. "17:45"
+    const parts = timeStr.split(':');
+    return {
+      hour: parseInt(parts[0], 10),
+      minute: parseInt(parts[1], 10),
+    };
+  } catch {
+    return { hour: -1, minute: -1 };
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const authHeader = request.headers.get('Authorization');
@@ -33,61 +53,53 @@ export async function GET(request: Request) {
     const now = new Date();
 
     for (const agent of agents) {
-      // 3. Time Matching Logic (Same as index.js)
-      const tz = agent.timezone || 'Asia/Dhaka';
-      
-      // Check if it already ran today (within the last 18 hours)
-      let alreadyRanToday = false;
+      const tz = (agent.timezone as string) || 'Asia/Dhaka';
+
+      // Check if already ran today (within the last 18 hours)
       if (agent.last_run_at) {
-        const lastRun = new Date(agent.last_run_at);
-        const hoursSinceLastRun = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
-        if (hoursSinceLastRun < 18) {
-          alreadyRanToday = true;
+        const lastRun = new Date(agent.last_run_at as string);
+        const hoursSince = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
+        if (hoursSince < 18) {
+          results.push({ title: agent.title, status: 'skipped', reason: 'already_ran_today' });
+          continue;
         }
       }
 
-      if (alreadyRanToday) {
-        results.push({ title: agent.title, status: 'skipped', reason: 'already_ran_today' });
-        continue;
-      }
+      // Get current time in agent's timezone
+      const { hour: localHour, minute: localMinute } = getLocalHourAndMinute(tz);
 
-      // Get current hour and minute in agent's timezone using a safe approach
-      const localTimeStr = now.toLocaleString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: tz,
-      });
-      // localTimeStr will be like "17:45"
-      const [localHourStr, localMinuteStr] = localTimeStr.split(':');
-      const localHour = parseInt(localHourStr, 10);
-      const localMinute = parseInt(localMinuteStr, 10);
-      
-      const [prefH, prefM] = agent.preferred_time.split(':');
-      const preferredHour = parseInt(prefH, 10);
-      const preferredMinute = parseInt(prefM, 10);
+      // Parse preferred_time e.g. "17:30:00"
+      const timeParts = (agent.preferred_time as string).split(':');
+      const preferredHour = parseInt(timeParts[0], 10);
+      const preferredMinute = parseInt(timeParts[1], 10);
 
       const isCorrectHour = localHour === preferredHour;
-      // Allow a 10-minute window for the external pinger frequency
       const isCorrectMinute = Math.abs(localMinute - preferredMinute) <= 10;
 
       if (isCorrectHour && isCorrectMinute) {
-        console.log(`🚀 Triggering agent from Cron API: ${agent.title}`);
-        await runAgentImmediately(agent.id, supabase);
+        console.log(`🚀 Triggering: ${agent.title}`);
+        await runAgentImmediately(agent.id as string, supabase);
         results.push({ title: agent.title, status: 'triggered' });
       } else {
-        results.push({ title: agent.title, status: 'skipped', reason: 'time_mismatch', current: `${localHour}:${localMinute}`, goal: `${preferredHour}:${preferredMinute}` });
+        results.push({
+          title: agent.title,
+          status: 'skipped',
+          reason: 'time_mismatch',
+          current: `${localHour}:${localMinute}`,
+          goal: `${preferredHour}:${preferredMinute}`,
+        });
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       processed_at: now.toISOString(),
-      results 
+      results,
     });
 
-  } catch (err: any) {
-    console.error('Cron API Error:', err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Cron API Error:', msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
