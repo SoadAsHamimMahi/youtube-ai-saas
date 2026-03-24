@@ -51,17 +51,17 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // Get current hour and minute in agent's timezone
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        hour: 'numeric',
-        minute: 'numeric',
+      // Get current hour and minute in agent's timezone using a safe approach
+      const localTimeStr = now.toLocaleString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
         hour12: false,
-        timeZone: tz
+        timeZone: tz,
       });
-      
-      const parts = formatter.formatToParts(now);
-      const localHour = parseInt(parts.find(p => p.type === 'hour')!.value, 10);
-      const localMinute = parseInt(parts.find(p => p.type === 'minute')!.value, 10);
+      // localTimeStr will be like "17:45"
+      const [localHourStr, localMinuteStr] = localTimeStr.split(':');
+      const localHour = parseInt(localHourStr, 10);
+      const localMinute = parseInt(localMinuteStr, 10);
       
       const [prefH, prefM] = agent.preferred_time.split(':');
       const preferredHour = parseInt(prefH, 10);
