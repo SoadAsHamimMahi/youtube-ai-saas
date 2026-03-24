@@ -3,21 +3,19 @@ import nodemailer from "nodemailer";
 import { createClient } from "@/lib/supabase-server";
 import { getTopJobs, sendJobEmailReport } from "@/lib/job-worker";
 
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASS = process.env.GMAIL_PASS;
 
 async function getTopVideos(queries: string[], maxResults = 10) {
   const publishedAfter = new Date();
   publishedAfter.setHours(publishedAfter.getHours() - 48);
   const timestamp = publishedAfter.toISOString();
 
+  const apiKey = process.env.YOUTUBE_API_KEY;
   const allResults = await Promise.all(
     queries.map(async (q) => {
       try {
         const res = await axios.get("https://www.googleapis.com/youtube/v3/search", {
           params: {
-            key: YOUTUBE_API_KEY,
+            key: apiKey,
             q,
             part: "snippet",
             type: "video",
@@ -46,7 +44,7 @@ async function getTopVideos(queries: string[], maxResults = 10) {
 
   const statsRes = await axios.get("https://www.googleapis.com/youtube/v3/videos", {
     params: {
-      key: YOUTUBE_API_KEY,
+      key: apiKey,
       id: uniqueIds.join(","),
       part: "statistics,snippet",
     },
@@ -66,13 +64,16 @@ async function getTopVideos(queries: string[], maxResults = 10) {
 }
 
 async function sendEmailReport(videos: any[], recipientEmail: string, title: string) {
-  if (!GMAIL_USER || !GMAIL_PASS) {
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_PASS;
+
+  if (!gmailUser || !gmailPass) {
     throw new Error("Gmail credentials missing in .env.local");
   }
 
   const transporter = nodemailer.createTransport({
     service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_PASS },
+    auth: { user: gmailUser, pass: gmailPass },
   });
 
   const videoRows = videos.map((v, i) => `
@@ -84,7 +85,7 @@ async function sendEmailReport(videos: any[], recipientEmail: string, title: str
   `).join("");
 
   await transporter.sendMail({
-    from: `"YouTube AI Monitor 🤖" <${GMAIL_USER}>`,
+    from: `"YouTube AI Monitor 🤖" <${gmailUser}>`,
     to: recipientEmail,
     subject: `🔥 ${title} — Latest Top Videos`,
     html: `
@@ -124,7 +125,8 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
         await sendJobEmailReport(jobs, agent.recipient_email as string, agent.title as string);
       }
     } else {
-      if (!YOUTUBE_API_KEY) throw new Error("YOUTUBE_API_KEY missing in .env.local");
+      const apiKey = process.env.YOUTUBE_API_KEY;
+      if (!apiKey) throw new Error("YOUTUBE_API_KEY missing in .env.local");
       const videos = await getTopVideos(agent.queries, agent.max_videos || 10);
       
       if (videos.length > 0) {
