@@ -1,6 +1,7 @@
 import axios from 'axios';
 import nodemailer from 'nodemailer';
 import { getTransporter } from '@/lib/mailer';
+import he from 'he'; // HTML entity escaping — prevents XSS via crafted job titles
 
 interface JobResult {
   id: string;
@@ -151,36 +152,46 @@ export async function sendJobEmailReport(jobs: JobResult[], recipientEmail: stri
 
   const transporter = getTransporter();
 
+  // SECURITY FIX #7: Escape all external job data before injecting into HTML.
+  // Job titles from APIs could contain </h3><script> payloads.
   const jobRows = jobs.map((job, i) => {
-    const salaryTag = job.salary 
-      ? `<span style="display:inline-block; background:#ecfdf5; color:#059669; padding:2px 8px; border-radius:4px; font-weight:700; margin-right:8px;">💰 ${job.salary}</span>`
+    const safeTitle = he.escape(job.title);
+    const safeCompany = he.escape(job.company);
+    const safeLocation = he.escape(job.location);
+    const safeUrl = he.escape(job.apply_url);
+    const safeSource = he.escape(job.source);
+    const safeSalary = job.salary ? he.escape(job.salary) : null;
+    const safePostedAt = he.escape(job.posted_at || 'Recently');
+    // Strip HTML tags from description then escape remaining special chars
+    const shortDesc = he.escape((job.description?.replace(/<[^>]+>/g, '') ?? '').slice(0, 250)) + '...';
+
+    const salaryTag = safeSalary
+      ? `<span style="display:inline-block; background:#ecfdf5; color:#059669; padding:2px 8px; border-radius:4px; font-weight:700; margin-right:8px;">💰 ${safeSalary}</span>`
       : "";
-    const sourceTag = `<span style="display:inline-block; background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:4px; font-weight:700;">🌐 ${job.source}</span>`;
-    
-    const shortDesc = job.description?.slice(0, 250).replace(/<[^>]+>/g, '') + '...';
-    
+    const sourceTag = `<span style="display:inline-block; background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:4px; font-weight:700;">🌐 ${safeSource}</span>`;
+
     let buttonText = "Apply Now →";
     if (job.source.toLowerCase().includes('linkedin') || job.apply_url.includes('linkedin.com')) {
       buttonText = "Find on LinkedIn →";
     } else if (job.source) {
-      buttonText = `Apply on ${job.source} →`;
+      buttonText = `Apply on ${safeSource} →`;
     }
 
     return `
     <div style="margin-bottom: 24px; border: 1px solid #e5e7eb; padding: 20px; background: #ffffff; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
       <h3 style="margin: 0 0 8px; font-size: 18px;">
-        <a href="${job.apply_url}" style="color: #1d4ed8; text-decoration: none; font-weight: 800;">${i + 1}. ${job.title}</a>
+        <a href="${safeUrl}" style="color: #1d4ed8; text-decoration: none; font-weight: 800;">${i + 1}. ${safeTitle}</a>
       </h3>
       <div style="margin-bottom: 10px; font-size: 14px; color: #4b5563; font-weight: 600;">
-        🏢 ${job.company} &nbsp;|&nbsp; 📍 ${job.location}
+        🏢 ${safeCompany} &nbsp;|&nbsp; 📍 ${safeLocation}
       </div>
       <div style="margin-bottom: 12px; font-size: 12px;">
-        ${salaryTag} ${sourceTag} &nbsp;|&nbsp; 📅 ${job.posted_at || 'Recently'}
+        ${salaryTag} ${sourceTag} &nbsp;|&nbsp; 📅 ${safePostedAt}
       </div>
       <p style="margin: 0 0 16px; font-size: 13px; color: #374151; line-height: 1.5; background: #f9fafb; padding: 10px; border-radius: 6px;">
         ${shortDesc}
       </p>
-      <a href="${job.apply_url}" style="display: inline-block; padding: 10px 22px; background: #0077b5; color: white; border-radius: 8px; font-size: 14px; font-weight: 700; text-decoration: none;">
+      <a href="${safeUrl}" style="display: inline-block; padding: 10px 22px; background: #0077b5; color: white; border-radius: 8px; font-size: 14px; font-weight: 700; text-decoration: none;">
         ${buttonText}
       </a>
     </div>

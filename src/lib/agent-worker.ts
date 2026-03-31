@@ -1,6 +1,7 @@
 import axios from "axios";
 import nodemailer from "nodemailer";
 import { getTransporter } from "@/lib/mailer";
+import he from "he"; // HTML entity encoder — prevents XSS in emails
 import { createClient } from "@/lib/supabase-server";
 import { getTopJobs, sendJobEmailReport } from "@/lib/job-worker";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
@@ -75,11 +76,13 @@ async function sendEmailReport(videos: any[], recipientEmail: string, title: str
 
   const transporter = getTransporter();
 
+  // SECURITY FIX #7: Escape all external data before injecting into HTML.
+  // YouTube titles like '</h3><script>...</script>' would execute in some email clients.
   const videoRows = videos.map((v, i) => `
     <div style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
-      <h3 style="margin: 0;"><a href="${v.url}">${i + 1}. ${v.title}</a></h3>
-      <p style="color: #666; font-size: 14px;">👁️ ${v.viewCount.toLocaleString()} views • 📅 ${new Date(v.publishedAt).toLocaleDateString()}</p>
-      <img src="${v.thumbnail}" width="200" style="border-radius: 8px;" />
+      <h3 style="margin: 0;"><a href="${he.escape(v.url)}">${i + 1}. ${he.escape(v.title)}</a></h3>
+      <p style="color: #666; font-size: 14px;">👁️ ${he.escape(String(v.viewCount.toLocaleString()))} views • 📅 ${he.escape(new Date(v.publishedAt).toLocaleDateString())}</p>
+      <img src="${he.escape(v.thumbnail)}" width="200" style="border-radius: 8px;" />
     </div>
   `).join("");
 
@@ -99,11 +102,15 @@ async function sendEmailReport(videos: any[], recipientEmail: string, title: str
 }
 
 export async function runAgentImmediately(agentId: string, customSupabase?: any) {
-  // Use provided client (e.g. Service Role) OR create the standard server client (Cookies)
-  const supabase = customSupabase || await createClient();
+  // Create admin client ONCE at the top (used for credits, logging, updating)
+  const adminSupabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   try {
-    const { data: agent, error } = await supabase
+    // Always use admin client to fetch agent (works for both cron and user-triggered)
+    const { data: agent, error } = await adminSupabase
       .from("monitoring_configs")
       .select("*")
       .eq("id", agentId)
@@ -114,10 +121,16 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       throw new Error(`Agent not found (ID: ${agentId})`);
     }
 
-    const adminSupabase = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    // SECURITY FIX #4: When triggered by a USER (not the cron's service-role client),
+    // verify that the requesting user actually OWNS this agent.
+    // The cron passes its own supabase client; user triggers pass undefined.
+    if (!customSupabase) {
+      const userSupabase = await createClient();
+      const { data: { user } } = await userSupabase.auth.getUser();
+      if (!user || user.id !== agent.user_id) {
+        throw new Error('Forbidden: You do not have permission to run this agent.');
+      }
+    }
 
     // Verify Credits & Instant Run Limits
     const { data: profile } = await adminSupabase
@@ -198,12 +211,8 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
 
     return { success: true };
   } catch (e: any) {
-    console.error("Manual Run Error:", e.message);
-    
-    const adminSupabase = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    console.error("Agent Run Error:", e.message);
+    // adminSupabase is already in scope from the top of this function
 
     // Attempt status update even on failure
     await adminSupabase

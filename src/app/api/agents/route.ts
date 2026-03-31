@@ -1,29 +1,13 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 
-// GET all monitoring configs for the user
+// This endpoint has been intentionally disabled for security reasons.
+// It was a legacy endpoint with no authentication checks.
+// All agent management is now handled via authenticated Server Actions in:
+// src/app/actions/agent-actions.ts
 export async function GET() {
-  const { data, error } = await supabase
-    .from('monitoring_configs')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json(data);
+  return NextResponse.json({ error: 'This endpoint is deprecated. Use the dashboard.' }, { status: 410 });
 }
 
-// POST a new monitoring config
-export async function POST(request: Request) {
-  const body = await request.json();
-  const { title, queries, preferred_time } = body;
-
-  const { data, error } = await supabase
-    .from('monitoring_configs')
-    .insert([
-      { title, queries, preferred_time, user_id: 'temp-user-id' } // Will replace with Auth user
-    ])
-    .select();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json(data[0]);
+export async function POST() {
+  return NextResponse.json({ error: 'This endpoint is deprecated. Use the dashboard.' }, { status: 410 });
 }

@@ -2,8 +2,15 @@
 
 import { createClient } from "@/lib/supabase-server";
 import { revalidatePath } from "next/cache";
+import { UpdateProfileSchema } from "@/lib/validation";
 
 export async function updateProfile(formData: { full_name: string }) {
+  // SECURITY FIX #6: Validate + sanitize input with Zod before DB write
+  const parsed = UpdateProfileSchema.safeParse(formData);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -15,7 +22,7 @@ export async function updateProfile(formData: { full_name: string }) {
     const { error } = await supabase
       .from("profiles")
       .update({ 
-        full_name: formData.full_name,
+        full_name: parsed.data.full_name,
         updated_at: new Date().toISOString()
       })
       .eq("id", user.id);
