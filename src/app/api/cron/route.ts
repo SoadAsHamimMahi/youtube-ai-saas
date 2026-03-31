@@ -32,43 +32,25 @@ function getLocalHourAndMinute(timezone: string): { hour: number; minute: number
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+  // BUG #7 FIX: Only accept the secret via Authorization header — NOT via URL query param.
+  // A URL query param would expose the secret in server logs, proxy logs, and browser history.
   const authHeader = request.headers.get('Authorization');
-  const secret = searchParams.get('secret') || authHeader?.replace('Bearer ', '');
+  const secret = authHeader?.replace('Bearer ', '');
 
   // 1. Security Check
   if (!CRON_SECRET || secret !== CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 1b. Automated Credit Reset (Every 7 Days)
-  // This resets credits to tier defaults if now() >= last_reset_at + 7 days
+  // BUG #10 FIX: Use a single batch UPDATE instead of a sequential per-user loop.
+  // A loop with N users does N separate DB round-trips. A single SQL call handles all.
   try {
-    const { data: profilesToReset } = await supabase
-      .from('profiles')
-      .select('id, tier, last_reset_at')
-      .lte('last_reset_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    if (profilesToReset && profilesToReset.length > 0) {
-      console.log(`♻️ Resetting credits for ${profilesToReset.length} users...`);
-      for (const profile of profilesToReset) {
-        const defaultCredits = profile.tier === 'pro' ? 1000 : 100;
-        
-        // Calculate next reset date precisely (last_reset + 7 days)
-        const oldReset = new Date(profile.last_reset_at);
-        const nextReset = new Date(oldReset.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    // Batch update all eligible users in a single query using conditional SQL
+    await supabase.rpc('reset_credits_batch', { cutoff_ts: sevenDaysAgo });
 
-        await supabase
-          .from('profiles')
-          .update({ 
-            credits: defaultCredits, 
-            instant_runs_used: 0,
-            last_reset_at: nextReset,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', profile.id);
-      }
-    }
+    console.log('♻️ Credit batch reset executed.');
   } catch (resetErr: any) {
     console.error('Credit Reset Error:', resetErr.message);
     // Continue with agent runs even if reset fails
@@ -83,62 +65,61 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
-    const results = [];
     const now = new Date();
 
-    for (const agent of agents) {
+    // Determine which agents are due to run right now (time + frequency check)
+    const agentsDue = agents.filter((agent) => {
       const tz = (agent.timezone as string) || 'Asia/Dhaka';
 
-      // Check frequency schedule prevent early runs
       if (agent.last_run_at) {
         const lastRun = new Date(agent.last_run_at as string);
         const hoursSince = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
-        
-        // Calculate required hours based on frequency (daily=1, 3 days=3, weekly=7)
-        // We subtract 6 hours from the total to give leeway for exact cron trigger timings and timezone boundaries
         const frequencyDays = agent.frequency_days || 1;
         const requiredHours = (frequencyDays * 24) - 6;
-
-        if (hoursSince < requiredHours) {
-          results.push({ title: agent.title, status: 'skipped', reason: `frequency_not_met_wait_${frequencyDays}_days` });
-          continue;
-        }
+        if (hoursSince < requiredHours) return false;
       }
 
-      // Get current time in agent's timezone
       const { hour: localHour, minute: localMinute } = getLocalHourAndMinute(tz);
-
-      // Parse preferred_time e.g. "17:30:00"
       const timeParts = (agent.preferred_time as string).split(':');
       const preferredHour = parseInt(timeParts[0], 10);
       const preferredMinute = parseInt(timeParts[1], 10);
+      return localHour === preferredHour && Math.abs(localMinute - preferredMinute) <= 10;
+    });
 
-      const isCorrectHour = localHour === preferredHour;
-      const isCorrectMinute = Math.abs(localMinute - preferredMinute) <= 10;
+    const skipped = agents.length - agentsDue.length;
+    console.log(`[Cron] ${agentsDue.length} agent(s) due to run, ${skipped} skipped.`);
 
-      if (isCorrectHour && isCorrectMinute) {
-        console.log(`🚀 Triggering: ${agent.title} (type: ${agent.agent_type || 'youtube'})`);
-        
-        try {
-          await runAgentImmediately(agent.id as string, supabase);
-          results.push({ title: agent.title, status: 'triggered', type: agent.agent_type || 'youtube' });
-        } catch (err: any) {
-           results.push({ title: agent.title, status: 'error', reason: err.message });
-        }
-      } else {
-        results.push({
-          title: agent.title,
-          status: 'skipped',
-          reason: 'time_mismatch',
-          current: `${localHour}:${localMinute}`,
-          goal: `${preferredHour}:${preferredMinute}`,
-        });
+    // BUG #1 FIX: Process agents in PARALLEL batches of 5 instead of one sequential loop.
+    // Sequential processing would timeout on Vercel after ~10 agents.
+    // Promise.allSettled captures all results even if individual agents fail.
+    const BATCH_SIZE = 5;
+    const results: any[] = [];
+
+    for (let i = 0; i < agentsDue.length; i += BATCH_SIZE) {
+      const batch = agentsDue.slice(i, i + BATCH_SIZE);
+      console.log(`[Cron] Processing batch ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} agents)`);
+
+      const batchResults = await Promise.allSettled(
+        batch.map(async (agent) => {
+          try {
+            await runAgentImmediately(agent.id as string, supabase);
+            return { title: agent.title, status: 'triggered', type: agent.agent_type || 'youtube' };
+          } catch (err: any) {
+            return { title: agent.title, status: 'error', reason: err.message };
+          }
+        })
+      );
+
+      for (const result of batchResults) {
+        results.push(result.status === 'fulfilled' ? result.value : { status: 'error', reason: (result as any).reason });
       }
     }
 
     return NextResponse.json({
       success: true,
       processed_at: now.toISOString(),
+      agents_due: agentsDue.length,
+      agents_skipped: skipped,
       results,
     });
 

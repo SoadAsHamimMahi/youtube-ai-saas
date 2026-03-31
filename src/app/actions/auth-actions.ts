@@ -1,10 +1,10 @@
 "use server";
 
-import { createClient } from "@/lib/supabase-server";
 import { createClient as createSupabaseAdmin } from "@supabase/supabase-js";
+import { getTransporter } from "@/lib/mailer";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import nodemailer from "nodemailer";
+import { createClient } from "@/lib/supabase-server";
 
 // Admin client for generating confirm links
 const getAdminSupabase = () => {
@@ -22,48 +22,37 @@ export async function signUpAction(formData: FormData) {
     return { success: false, error: "Email and password are required." };
   }
 
-  const supabase = await createClient();
   const adminSupabase = getAdminSupabase();
 
   try {
-    // 1. Create the user through Supabase Auth (Client)
-    // This triggers the default email, but we'll also send our own if we can 
-    // generate a link, or we can just use our SMTP for everything.
-    const { data: { user }, error: signUpError } = await supabase.auth.signUp({
+    // BUG #4 FIX: Use Admin createUser (does NOT send built-in Supabase email)
+    // instead of client signUp (which ALSO sends a built-in confirmation email).
+    // This ensures only ONE email is ever sent — our custom branded SMTP one.
+    const { data: { user }, error: createError } = await adminSupabase.auth.admin.createUser({
       email,
       password,
-      options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || ''}/auth/callback`,
-      }
+      email_confirm: false, // User still needs to click confirmation link
     });
 
-    if (signUpError) throw signUpError;
+    if (createError) throw createError;
     if (!user) throw new Error("Could not create user.");
 
-    // 2. Generate a custom confirmation link using Admin API to ensure we have it for SMTP
+    // BUG #3 FIX: Use 'magiclink' type so no password is passed to generateLink.
+    // The user is already created above, so we just need a login/confirm link.
     const { data: linkData, error: linkError } = await adminSupabase.auth.admin.generateLink({
-      type: 'signup',
+      type: 'magiclink',
       email: email,
-      password: password,
     });
 
     if (linkError) {
-      console.error("Admin link generation failed, but user created:", linkError.message);
-      // Fallback: The user was created, but we couldn't get a custom link. 
-      // Supabase's default provider MIGHT have sent one.
-      return { success: true, message: "Success! Check your email for a confirmation link." };
+      console.error("Admin link generation failed:", linkError.message);
+      return { success: true, message: "Account created! Please check your email for a confirmation link." };
     }
 
     const { action_link } = linkData.properties;
 
-    // 3. Send custom branded email via SMTP
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS,
-      },
-    });
+    // BUG #8 FIX: Use singleton transporter, not a new one per request
+    const transporter = getTransporter();
 
     await transporter.sendMail({
       from: `"AI Monitor 🤖" <${process.env.GMAIL_USER}>`,
@@ -87,7 +76,7 @@ export async function signUpAction(formData: FormData) {
       `,
     });
 
-    return { success: true, message: "Success! Branded confirmation link sent via SMTP. Please check your inbox." };
+    return { success: true, message: "Success! Check your inbox for the confirmation email." };
   } catch (error: any) {
     console.error("Auth Action Error:", error.message);
     return { success: false, error: error.message };

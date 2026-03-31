@@ -1,5 +1,6 @@
 import axios from "axios";
 import nodemailer from "nodemailer";
+import { getTransporter } from "@/lib/mailer";
 import { createClient } from "@/lib/supabase-server";
 import { getTopJobs, sendJobEmailReport } from "@/lib/job-worker";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
@@ -72,10 +73,7 @@ async function sendEmailReport(videos: any[], recipientEmail: string, title: str
     throw new Error("Gmail credentials missing in .env.local");
   }
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: gmailUser, pass: gmailPass },
-  });
+  const transporter = getTransporter();
 
   const videoRows = videos.map((v, i) => `
     <div style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
@@ -185,21 +183,18 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
         metadata: { results }
       });
 
-      // Deduct Credits & Increment Instant Run Count if Free
+      // Deduct Credits & Increment Instant Run Count if Free (Atomically)
       const creditCost = emailSent ? 10 : 5;
-      const profileUpdates: any = { 
-        credits: Math.max(0, profile.credits - creditCost),
-        updated_at: new Date().toISOString()
-      };
       
-      if (profile.tier === 'free') {
-        profileUpdates.instant_runs_used = (profile.instant_runs_used || 0) + 1;
-      }
+      const { error: rpcError } = await adminSupabase.rpc('deduct_credits_and_increment_runs', {
+        user_id_param: agent.user_id,
+        credit_cost: creditCost,
+        is_free_tier: profile.tier === 'free'
+      });
 
-      await adminSupabase
-        .from("profiles")
-        .update(profileUpdates)
-        .eq("id", agent.user_id);
+      if (rpcError) {
+        console.error("Failed to deduct credits via RPC:", rpcError);
+      }
 
     return { success: true };
   } catch (e: any) {

@@ -2,6 +2,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import { createClient as createServerClient } from "@/lib/supabase-server";
 
 // Helper to get admin Supabase client that bypasses RLS
 const getAdminSupabase = () => {
@@ -11,35 +12,54 @@ const getAdminSupabase = () => {
   );
 };
 
+// BUG #5 FIX: Verify the caller is an admin before any admin operation.
+// Without this, any authenticated user could call these server actions.
+async function assertAdmin() {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized: Not logged in.");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "admin") {
+    throw new Error("Forbidden: Admin access required.");
+  }
+}
+
 export async function getAllUsers() {
+  await assertAdmin();  // BUG #5 FIX
   const supabase = getAdminSupabase();
   try {
-    const { data: profiles, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
+    // BUG #6 FIX: Fetch profiles and agents together, group in one pass using a Map.
+    // Old approach did O(n*m) JavaScript filter per user with nested loops.
+    const [profilesResult, agentsResult] = await Promise.all([
+      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("monitoring_configs").select("user_id, is_active"),
+    ]);
 
-    if (error) throw error;
+    if (profilesResult.error) throw profilesResult.error;
 
-    // Get active agents count for each user just for analytics
-    const { data: agentCounts } = await supabase
-      .from("monitoring_configs")
-      .select("user_id", { count: "exact" });
+    const profiles = profilesResult.data;
+    const allAgents = agentsResult.data || [];
 
-    // Note: The above count doesn't group by user id effectively unless we use RPC
-    // Let's do a simple count per user by fetching user_ids directly
-    const { data: activeAgents } = await supabase
-      .from("monitoring_configs")
-      .select("user_id, is_active");
+    // Build a lookup Map for O(n) grouping instead of O(n*m) filter
+    const agentMap = new Map<string, { total: number; active: number }>();
+    for (const agent of allAgents) {
+      const entry = agentMap.get(agent.user_id) || { total: 0, active: 0 };
+      entry.total++;
+      if (agent.is_active) entry.active++;
+      agentMap.set(agent.user_id, entry);
+    }
 
-    const enrichedProfiles = profiles.map(profile => {
-      const userAgents = activeAgents?.filter(a => a.user_id === profile.id) || [];
-      return {
-        ...profile,
-        total_agents: userAgents.length,
-        active_agents: userAgents.filter(a => a.is_active).length,
-      };
-    });
+    const enrichedProfiles = profiles.map(profile => ({
+      ...profile,
+      total_agents: agentMap.get(profile.id)?.total ?? 0,
+      active_agents: agentMap.get(profile.id)?.active ?? 0,
+    }));
 
     return { success: true, users: enrichedProfiles };
   } catch (error: any) {
@@ -49,6 +69,7 @@ export async function getAllUsers() {
 }
 
 export async function updateUserTier(userId: string, targetTier: 'free' | 'pro') {
+  await assertAdmin();  // BUG #5 FIX
   const supabase = getAdminSupabase();
   try {
     const { error } = await supabase
@@ -65,6 +86,7 @@ export async function updateUserTier(userId: string, targetTier: 'free' | 'pro')
 }
 
 export async function updateUserCredits(userId: string, newCredits: number) {
+  await assertAdmin();  // BUG #5 FIX
   const supabase = getAdminSupabase();
   try {
     const { error } = await supabase
@@ -81,6 +103,7 @@ export async function updateUserCredits(userId: string, newCredits: number) {
 }
 
 export async function updateUserInstantRunsUsed(userId: string, newUsed: number) {
+  await assertAdmin();  // BUG #5 FIX
   const supabase = getAdminSupabase();
   try {
     const { error } = await supabase

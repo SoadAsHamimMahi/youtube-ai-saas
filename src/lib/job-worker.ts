@@ -1,5 +1,6 @@
 import axios from 'axios';
 import nodemailer from 'nodemailer';
+import { getTransporter } from '@/lib/mailer';
 
 interface JobResult {
   id: string;
@@ -148,10 +149,7 @@ export async function sendJobEmailReport(jobs: JobResult[], recipientEmail: stri
     throw new Error('Gmail credentials missing in environment variables');
   }
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: gmailUser, pass: gmailPass },
-  });
+  const transporter = getTransporter();
 
   const jobRows = jobs.map((job, i) => {
     const salaryTag = job.salary 
