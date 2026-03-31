@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { updateUserTier, updateUserCredits } from "@/app/actions/admin-actions";
+import { updateUserTier, updateUserCredits, updateUserInstantRunsUsed } from "@/app/actions/admin-actions";
 import { Loader2, Plus, Minus, UserCog, Zap, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +41,18 @@ export function AdminUsersTable({ initialUsers }: { initialUsers: Profile[] }) {
       setUsers(users.map(u => u.id === userId ? { ...u, credits: newAmount } : u));
     } else {
       alert("Failed to update credits: " + res.error);
+    }
+    setLoadingId(null);
+  };
+
+  const handleInstantRunsChange = async (userId: string, currentUsed: number, change: number) => {
+    setLoadingId(userId);
+    const newUsed = Math.max(0, currentUsed + change);
+    const res = await updateUserInstantRunsUsed(userId, newUsed);
+    if (res.success) {
+      setUsers(users.map(u => u.id === userId ? { ...u, instant_runs_used: newUsed } : u));
+    } else {
+      alert("Failed to update instant runs: " + res.error);
     }
     setLoadingId(null);
   };
@@ -108,14 +120,34 @@ export function AdminUsersTable({ initialUsers }: { initialUsers: Profile[] }) {
               </td>
               
               <td className="py-4 px-4">
-                <div className="flex flex-col gap-0.5">
-                  <span className={cn(
-                    "text-sm font-black",
-                    user.instant_runs_used >= 2 ? "text-rose-500" : "text-white"
-                  )}>
-                    {user.instant_runs_used || 0} / 2
-                  </span>
-                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tight">Used This Week</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-0.5">
+                    <span className={cn(
+                      "text-sm font-black",
+                      user.instant_runs_used >= 2 ? "text-rose-500" : "text-white"
+                    )}>
+                      {user.instant_runs_used || 0} / 2
+                    </span>
+                    <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tight">Used This Week</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      onClick={() => handleInstantRunsChange(user.id, user.instant_runs_used || 0, -1)}
+                      disabled={loadingId === user.id || (user.instant_runs_used || 0) === 0}
+                      className="p-1 rounded bg-white/5 hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-400 transition-colors disabled:opacity-50 disabled:hover:bg-white/5 disabled:hover:text-gray-400"
+                      title="Add 1 Run (decrease used limit)"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => handleInstantRunsChange(user.id, user.instant_runs_used || 0, 1)}
+                      disabled={loadingId === user.id}
+                      className="p-1 rounded bg-white/5 hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 transition-colors disabled:opacity-50"
+                      title="Remove 1 Run (increase used limit)"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               </td>
               

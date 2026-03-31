@@ -1,15 +1,12 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 import { getTopJobs } from './src/lib/job-worker';
+import fs from "fs";
 
 async function test() {
-  console.log("APP_ID:", process.env.ADZUNA_APP_ID);
-  try {
-    const jobs = await getTopJobs(['React'], 'Remote', 5);
-    console.log("Jobs found:", jobs.length);
-    console.log(jobs[0]);
-  } catch (err) {
-    console.error("Test failed:", err);
-  }
+  const jobs = await getTopJobs(['Flutter'], 'Bangladesh', 10);
+  let str = `TOTAL JOBS FOUND: ${jobs.length}\n`;
+  jobs.forEach(j => str += `- ${j.title} | ${j.source} | ${j.apply_url}\n`);
+  fs.writeFileSync('output.txt', str);
 }
 test();

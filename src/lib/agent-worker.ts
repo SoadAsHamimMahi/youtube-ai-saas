@@ -140,7 +140,8 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
       throw new Error("Instant Trigger Limit Reached: Free users are limited to 2 manual runs every 7 days. Upgrade to Pro for unlimited instant triggers!");
     }
 
-      let results = [];
+      let results: any[] = [];
+      let emailSent = false;
       if (agent.agent_type === 'job') {
         results = await getTopJobs(
           agent.queries as string[],
@@ -149,6 +150,7 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
         );
         if (results.length > 0) {
           await sendJobEmailReport(results, agent.recipient_email as string, agent.title as string);
+          emailSent = true;
         }
       } else {
         const apiKey = process.env.YOUTUBE_API_KEY;
@@ -157,6 +159,7 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
         
         if (results.length > 0) {
           await sendEmailReport(results, agent.recipient_email, agent.title);
+          emailSent = true;
         }
       }
 
@@ -170,17 +173,22 @@ export async function runAgentImmediately(agentId: string, customSupabase?: any)
         })
         .eq("id", agentId);
 
+      const logMessage = results.length > 0 
+        ? `Run successful. Report sent to ${agent.recipient_email}. Cost: 10 Credits.`
+        : `Run successful, but no new results found. Email skipped. Cost: 5 Credits (Search fee).`;
+
       // Add log entry
       await adminSupabase.from('agent_logs').insert({
         agent_id: agentId,
         status: 'success',
-        message: `Manual run successful. Report sent to ${agent.recipient_email}. Cost: 10 Credits.`,
+        message: logMessage,
         metadata: { results }
       });
 
-      // Deduct 10 Credits & Increment Instant Run Count if Free
+      // Deduct Credits & Increment Instant Run Count if Free
+      const creditCost = emailSent ? 10 : 5;
       const profileUpdates: any = { 
-        credits: Math.max(0, profile.credits - 10),
+        credits: Math.max(0, profile.credits - creditCost),
         updated_at: new Date().toISOString()
       };
       

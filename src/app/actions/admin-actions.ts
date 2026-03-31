@@ -79,3 +79,19 @@ export async function updateUserCredits(userId: string, newCredits: number) {
     return { success: false, error: error.message };
   }
 }
+
+export async function updateUserInstantRunsUsed(userId: string, newUsed: number) {
+  const supabase = getAdminSupabase();
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ instant_runs_used: Math.max(0, newUsed) })
+      .eq("id", userId);
+
+    if (error) throw error;
+    revalidatePath("/dashboard/admin");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}

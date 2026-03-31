@@ -20,47 +20,124 @@ export async function getTopJobs(skills: string[], location: string = 'Banglades
     throw new Error('SERP_API_KEY missing in environment variables');
   }
 
-  const query = `${skills.join(' ')} jobs in ${location}`;
+  const fetchJobs = async (loc: string, customQuery?: string): Promise<JobResult[]> => {
+    const query = customQuery || `${skills.join(' ')} jobs in ${loc}`;
+    try {
+      console.log(`[JobWorker] Searching Google Jobs via SerpApi: ${query}`);
+      const res = await axios.get(`https://serpapi.com/search`, {
+        params: {
+          engine: "google_jobs",
+          q: query,
+          hl: "en",
+          chips: "date_posted:month", // Keep month to see up to 30 days
+          api_key: apiKey,
+        }
+      });
 
-  try {
-    console.log(`[JobWorker] Searching Google Jobs via SerpApi: ${query}`);
-    
-    const res = await axios.get(`https://serpapi.com/search`, {
-      params: {
-        engine: "google_jobs",
-        q: query,
-        hl: "en",
-        api_key: apiKey,
+      const results = res.data.jobs_results || [];
+      console.log(`[JobWorker] Found ${results.length} total jobs for query: ${query} in ${loc}.`);
+
+      return results
+        .map((job: any) => {
+          // Find apply link (we prioritize LinkedIn, but gracefully fall back to native source like Indeed)
+          const applyLinks = job.apply_options || job.related_links || [];
+          const linkedinLinkObj = applyLinks.find((l: any) => 
+            l.text?.toLowerCase().includes('linkedin') || 
+            l.title?.toLowerCase().includes('linkedin') || 
+            l.link?.toLowerCase().includes('linkedin.com')
+          );
+          
+          let finalLink = null;
+          let finalSourceName = '';
+
+          if (linkedinLinkObj) {
+            finalLink = linkedinLinkObj.link;
+            finalSourceName = 'LinkedIn';
+          } else if (applyLinks.length > 0 && applyLinks[0].link) {
+            finalLink = applyLinks[0].link;
+            finalSourceName = applyLinks[0].title || applyLinks[0].text || 'Site';
+          }
+
+          // If there is literally no application link provided by Google, skip the job (no fake searches)
+          if (!finalLink) return null;
+
+          // Filter out explicitly old jobs (years/etc)
+          const postedAt = job.detected_extensions?.posted_at?.toLowerCase() || '';
+          if (postedAt.includes('year')) {
+            return null;
+          }
+
+          // 30-day strict filtering (Relaxed from 15 days)
+          const daysMatch = postedAt.match(/(\d+)\s+days?/);
+          if (daysMatch) {
+            const days = parseInt(daysMatch[1], 10);
+            if (days > 30) return null;
+          }
+          
+          const weeksMatch = postedAt.match(/(\d+)\s+weeks?/);
+          if (weeksMatch) {
+            const weeks = parseInt(weeksMatch[1], 10);
+            if (weeks > 4) return null;
+          }
+
+          const monthsMatch = postedAt.match(/(\d+)\s+months?/);
+          if (monthsMatch) {
+            const months = parseInt(monthsMatch[1], 10);
+            if (months > 1) return null;
+          }
+
+          return {
+            id: job.job_id,
+            title: job.title,
+            company: job.company_name,
+            location: job.location,
+            description: job.description,
+            apply_url: finalLink,
+            posted_at: job.detected_extensions?.posted_at,
+            salary: job.detected_extensions?.salary,
+            source: job.via?.replace('via ', '') || finalSourceName
+          };
+        })
+        .filter((j: any) => j !== null);
+    } catch (e: any) {
+      console.error(`[JobWorker] SerpApi error for ${loc}:`, e.response?.data || e.message);
+      return [];
+    }
+  };
+
+  // 1. Initial search (Specific skills)
+  const primaryJobs = await fetchJobs(location);
+  let allJobs = [...primaryJobs];
+
+  // 2. Broadening: If we still don't have enough local jobs, try broader keywords (e.g., skip some specific skills)
+  if (allJobs.length < 5 && skills.length > 1) {
+    console.log(`[JobWorker] Low results (${allJobs.length}). Broadening local search...`);
+    // Example broad search: Just the first skill (usually the most important)
+    const broaderJobs = await fetchJobs(location, `${skills[0]} jobs in ${location}`);
+    for (const bj of broaderJobs) {
+      if (allJobs.length >= maxResults) break;
+      if (!allJobs.find(j => j.company === bj.company && j.title === bj.title)) {
+        allJobs.push(bj);
       }
-    });
-
-    const results = res.data.jobs_results || [];
-    console.log(`[JobWorker] Found ${results.length} total jobs.`);
-
-    const formattedJobs: JobResult[] = results.map((job: any) => {
-      // Find apply link (prefer LinkedIn if available)
-      const applyLinks = job.related_links || [];
-      const linkedinLink = applyLinks.find((l: any) => l.text?.toLowerCase().includes('linkedin'))?.link;
-      const firstLink = applyLinks[0]?.link || `https://www.google.com/search?q=${encodeURIComponent(job.title + " " + job.company_name)}#fpstate=tldetail`;
-
-      return {
-        id: job.job_id,
-        title: job.title,
-        company: job.company_name,
-        location: job.location,
-        description: job.description,
-        apply_url: linkedinLink || firstLink,
-        posted_at: job.detected_extensions?.posted_at,
-        salary: job.detected_extensions?.salary,
-        source: job.via?.replace('via ', '') || 'Google Jobs'
-      };
-    });
-
-    return formattedJobs.slice(0, maxResults);
-  } catch (e: any) {
-    console.error('[JobWorker] SerpApi error:', e.response?.data || e.message);
-    return [];
+    }
   }
+
+  // 3. Fallback: If we still haven't met the target, fill with global Remote jobs
+  if (allJobs.length < maxResults && location.toLowerCase() !== 'remote') {
+    console.log(`[JobWorker] Only found ${allJobs.length}/${maxResults} jobs. Filling with Remote global jobs.`);
+    const remoteQuery = `${skills.join(' ')} Remote jobs`;
+    const fallbackJobs = await fetchJobs('Remote', remoteQuery);
+    
+    // Add fallback jobs, ensuring no duplicates
+    for (const fbJob of fallbackJobs) {
+      if (allJobs.length >= maxResults) break;
+      if (!allJobs.find(j => j.company === fbJob.company && j.title === fbJob.title)) {
+        allJobs.push(fbJob);
+      }
+    }
+  }
+
+  return allJobs.slice(0, maxResults);
 }
 
 export async function sendJobEmailReport(jobs: JobResult[], recipientEmail: string, title: string) {
@@ -83,6 +160,13 @@ export async function sendJobEmailReport(jobs: JobResult[], recipientEmail: stri
     const sourceTag = `<span style="display:inline-block; background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:4px; font-weight:700;">🌐 ${job.source}</span>`;
     
     const shortDesc = job.description?.slice(0, 250).replace(/<[^>]+>/g, '') + '...';
+    
+    let buttonText = "Apply Now →";
+    if (job.source.toLowerCase().includes('linkedin') || job.apply_url.includes('linkedin.com')) {
+      buttonText = "Find on LinkedIn →";
+    } else if (job.source) {
+      buttonText = `Apply on ${job.source} →`;
+    }
 
     return `
     <div style="margin-bottom: 24px; border: 1px solid #e5e7eb; padding: 20px; background: #ffffff; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
@@ -99,7 +183,7 @@ export async function sendJobEmailReport(jobs: JobResult[], recipientEmail: stri
         ${shortDesc}
       </p>
       <a href="${job.apply_url}" style="display: inline-block; padding: 10px 22px; background: #0077b5; color: white; border-radius: 8px; font-size: 14px; font-weight: 700; text-decoration: none;">
-        Apply on ${job.source.includes('LinkedIn') ? 'LinkedIn' : 'Site'} →
+        ${buttonText}
       </a>
     </div>
   `;

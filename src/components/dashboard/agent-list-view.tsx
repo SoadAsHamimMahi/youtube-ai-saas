@@ -80,6 +80,7 @@ function getRelativeTime(dateString: string) {
 }
 
 export function AgentListView({ agentType, title, description, defaultModalType = 'youtube' }: AgentListViewProps) {
+  const [mounted, setMounted] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export function AgentListView({ agentType, title, description, defaultModalType 
   };
 
   useEffect(() => {
+    setMounted(true);
     const interval = setInterval(() => setTimeUpdate(prev => prev + 1), 5000);
     return () => clearInterval(interval);
   }, []);
@@ -218,8 +220,8 @@ export function AgentListView({ agentType, title, description, defaultModalType 
 
 
       {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-1">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6" suppressHydrationWarning>
+        <div className="space-y-1" suppressHydrationWarning>
           <h2 className="text-4xl font-black tracking-tighter font-outfit text-white">
             {title}
           </h2>
@@ -242,12 +244,12 @@ export function AgentListView({ agentType, title, description, defaultModalType 
           { label: "Total Reports Sent", value: totalSentCount.toString(), icon: Send, color: "text-emerald-400", bg: "bg-emerald-400/10" },
           { label: "Emails Configured", value: agents.filter(a => a.recipient_email).length.toString(), icon: Mail, color: "text-indigo-400", bg: "bg-indigo-400/10" },
         ].map((stat, i) => (
-          <div key={i} className="glass p-8 rounded-3xl flex items-center justify-between group hover:bg-white/[0.04] transition-all duration-500 border border-white/5 shadow-2xl">
-            <div className="space-y-1">
+          <div key={i} className="glass p-8 rounded-3xl flex items-center justify-between group hover:bg-white/[0.04] transition-all duration-500 border border-white/5 shadow-2xl" suppressHydrationWarning>
+            <div className="space-y-1" suppressHydrationWarning>
               <p className="text-[10px] text-gray-400 font-black mb-1 uppercase tracking-[0.2em]">{stat.label}</p>
               <p className="text-5xl font-black font-outfit tracking-tighter">{stat.value}</p>
             </div>
-            <div className={cn("p-5 rounded-2xl border border-white/10 transition-all duration-500 group-hover:scale-110", stat.bg, stat.color)}>
+            <div className={cn("p-5 rounded-2xl border border-white/10 transition-all duration-500 group-hover:scale-110", stat.bg, stat.color)} suppressHydrationWarning>
               <stat.icon className="w-8 h-8" />
             </div>
           </div>
@@ -257,9 +259,9 @@ export function AgentListView({ agentType, title, description, defaultModalType 
 
       {/* Agents */}
       <section className="space-y-6 pb-20">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" suppressHydrationWarning>
           <h3 className="text-2xl font-black font-outfit tracking-tight flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-primary shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-pulse" />
+            <div className="w-3 h-3 rounded-full bg-primary shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-pulse" suppressHydrationWarning />
             Monitoring Agents ({agents.length})
           </h3>
           <button 
@@ -304,9 +306,9 @@ export function AgentListView({ agentType, title, description, defaultModalType 
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" suppressHydrationWarning>
             {agents.map((agent) => (
-              <div key={agent.id} className="glass rounded-[2rem] p-10 flex flex-col h-full border border-white/5 hover:border-primary/40 group transition-all duration-700 relative overflow-hidden group-hover:translate-y-[-4px] shadow-2xl">
+              <div key={agent.id} className="glass rounded-[2rem] p-10 flex flex-col h-full border border-white/5 hover:border-primary/40 group transition-all duration-700 relative overflow-hidden group-hover:translate-y-[-4px] shadow-2xl" suppressHydrationWarning>
                 {/* Background Shimmer Effect */}
                 {agent.is_active && (
                   <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-[80px] pointer-events-none group-hover:bg-primary/20 transition-all duration-700" />
@@ -434,7 +436,7 @@ export function AgentListView({ agentType, title, description, defaultModalType 
                       )}>
                         {agent.last_run_status === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
                         <span className="animate-in fade-in slide-in-from-left-1 duration-500">
-                          {agent.last_run_status === 'success' ? 'Email sent' : 'Failed'} {typeof window !== 'undefined' ? getRelativeTime(agent.last_run_at) : 'recently'}
+                          {agent.last_run_status === 'success' ? 'Email sent' : 'Failed'} {mounted ? getRelativeTime(agent.last_run_at) : 'recently'}
                         </span>
                       </div>
                       

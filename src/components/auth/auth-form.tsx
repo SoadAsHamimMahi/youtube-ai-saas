@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { signUpAction } from '@/app/actions/auth-actions';
 import { cn } from '@/lib/utils';
 import { Mail, Lock, Loader2, ArrowRight } from 'lucide-react';
 
@@ -21,13 +22,17 @@ export function AuthForm() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ 
-          email, 
-          password,
-          options: { emailRedirectTo: window.location.origin }
-        });
-        if (error) throw error;
-        setMessage({ type: 'success', text: 'Success! Check your email for a confirmation link (or try logging in if you disabled email confirmation).' });
+        const formData = new FormData();
+        formData.append('email', email);
+        formData.append('password', password);
+        
+        const res = await signUpAction(formData);
+        
+        if (res.success) {
+          setMessage({ type: 'success', text: res.message || 'Success! Check your email for a confirmation link.' });
+        } else {
+          throw new Error(res.error || 'Failed to sign up.');
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
