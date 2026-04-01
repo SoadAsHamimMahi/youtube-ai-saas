@@ -79,6 +79,52 @@ function getRelativeTime(dateString: string) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function getNextRunText(agent: Agent) {
+  if (!agent.is_active) return 'Paused';
+  const tz = agent.timezone || 'Asia/Dhaka';
+  const now = new Date();
+  
+  // 1. Get current hour/min in agent's timezone
+  let currentHour = 0, currentMinute = 0;
+  try {
+    const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz });
+    const parts = timeStr.split(':');
+    currentHour = parseInt(parts[0], 10);
+    currentMinute = parseInt(parts[1], 10);
+  } catch(e) { return 'Scheduled'; }
+
+  const prefParts = (agent.preferred_time || '00:00').split(':');
+  const prefHour = parseInt(prefParts[0], 10);
+  const prefMinute = parseInt(prefParts[1], 10);
+  
+  let hoursUntilNextTime = prefHour - currentHour;
+  let minsUntilNextTime = prefMinute - currentMinute;
+  
+  if (minsUntilNextTime < 0) {
+    hoursUntilNextTime -= 1;
+    minsUntilNextTime += 60;
+  }
+  if (hoursUntilNextTime < 0) {
+    hoursUntilNextTime += 24;
+  }
+
+  // 2. Adjust for frequency delays, e.g. weekly runs
+  if (agent.last_run_at) {
+    const lastRun = new Date(agent.last_run_at);
+    const hoursSinceRun = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
+    const requiredHours = ((agent.frequency_days || 1) * 24) - 6;
+    
+    if (hoursSinceRun < requiredHours) {
+       const daysLeft = Math.ceil((requiredHours - hoursSinceRun) / 24);
+       if (daysLeft > 0) return `Next in ~${daysLeft} day${daysLeft > 1 ? 's' : ''}`;
+    }
+  }
+
+  if (hoursUntilNextTime === 0 && minsUntilNextTime === 0) return 'Running soon...';
+  if (hoursUntilNextTime === 0) return `Next in ${minsUntilNextTime}m`;
+  return `Next in ${hoursUntilNextTime}h ${minsUntilNextTime}m`;
+}
+
 export function AgentListView({ agentType, title, description, defaultModalType = 'youtube' }: AgentListViewProps) {
   const [mounted, setMounted] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -426,33 +472,43 @@ export function AgentListView({ agentType, title, description, defaultModalType 
                 {/* Footer Status Display */}
                 <div className="space-y-3.5 pt-4 border-t border-border-glass">
                   {/* LIVE COUNTDOWN / RELATIVE TIME */}
-                  {agent.last_run_at ? (
-                    <div className="space-y-2">
-                      <div className={cn(
-                        "flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-black border transition-colors",
-                        agent.last_run_status === 'success' 
-                          ? "bg-green-500/5 border-green-500/10 text-green-500" 
-                          : "bg-red-500/5 border-red-500/10 text-red-500"
-                      )}>
-                        {agent.last_run_status === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                        <span className="animate-in fade-in slide-in-from-left-1 duration-500">
-                          {agent.last_run_status === 'success' ? 'Email sent' : 'Failed'} {mounted ? getRelativeTime(agent.last_run_at) : 'recently'}
-                        </span>
-                      </div>
-                      
-                      {agent.last_run_status === 'error' && agent.last_run_error && (
-                        <div className="flex items-start gap-1.5 p-2 rounded bg-red-500/5 border border-red-500/10 text-[10px] text-red-400 font-medium leading-tight">
-                          <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                          <span>{agent.last_run_error}</span>
+                  <div className="space-y-2">
+                    {agent.last_run_at ? (
+                      <>
+                        <div className={cn(
+                          "flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-black border transition-colors",
+                          agent.last_run_status === 'success' 
+                            ? "bg-green-500/5 border-green-500/10 text-green-500" 
+                            : "bg-red-500/5 border-red-500/10 text-red-500"
+                        )}>
+                          {agent.last_run_status === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                          <span className="animate-in fade-in slide-in-from-left-1 duration-500">
+                            {agent.last_run_status === 'success' ? 'Email sent' : 'Failed'} {mounted ? getRelativeTime(agent.last_run_at) : 'recently'}
+                          </span>
                         </div>
-                      )}
+                        
+                        {agent.last_run_status === 'error' && agent.last_run_error && (
+                          <div className="flex items-start gap-1.5 p-2 rounded bg-red-500/5 border border-red-500/10 text-[10px] text-red-400 font-medium leading-tight">
+                            <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            <span>{agent.last_run_error}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-bold bg-white/5 border border-white/5 text-gray-500 italic">
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>Ready for first scan</span>
+                      </div>
+                    )}
+
+                    {/* NEXT RUN COUNTDOWN */}
+                    <div className="flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-black bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.05)]">
+                      <Clock className="w-3.5 h-3.5 flex-shrink-0 animate-pulse" />
+                      <span className="animate-in fade-in slide-in-from-left-1 duration-500 tracking-wide uppercase">
+                        {mounted ? getNextRunText(agent) : 'Calculatng...'}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-bold bg-white/5 border border-white/5 text-gray-500 italic">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>Ready for first scan</span>
-                    </div>
-                  )}
+                  </div>
 
                   {/* Mail & Schedule Info */}
                   <div className="flex flex-col gap-1.5">
