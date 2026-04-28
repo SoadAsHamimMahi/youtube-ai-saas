@@ -31,6 +31,7 @@ export const CreateAgentSchema = z.object({
   location: z.string().max(100).optional(),
   frequency_days: z.number().int().min(1).max(30).optional(),
   is_active: z.boolean().optional().default(true),
+  duration: z.enum(['1_week', '1_month', 'forever']).optional().default('forever'),
 });
 
 export const UpdateProfileSchema = z.object({

@@ -57,6 +57,14 @@ export async function GET(request: Request) {
   }
 
   try {
+    // 1.5 Expire agents that have passed their expires_at date
+    await supabase
+      .from('monitoring_configs')
+      .update({ is_active: false })
+      .eq('is_active', true)
+      .not('expires_at', 'is', null)
+      .lt('expires_at', new Date().toISOString());
+
     // 2. Fetch all active agents
     const { data: agents, error } = await supabase
       .from('monitoring_configs')

@@ -71,6 +71,11 @@ export async function updateAgent(agentId: string, updates: any) {
     if (updates.frequency_days !== undefined) safeUpdates.frequency_days = updates.frequency_days;
     if (updates.queries !== undefined && Array.isArray(updates.queries)) safeUpdates.queries = updates.queries.slice(0, 10);
     if (updates.location !== undefined) safeUpdates.location = String(updates.location).slice(0, 100);
+    if (updates.duration !== undefined) {
+      if (updates.duration === '1_week') safeUpdates.expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      else if (updates.duration === '1_month') safeUpdates.expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      else if (updates.duration === 'forever') safeUpdates.expires_at = null;
+    }
 
     // Enforce Free Tier restrictions on updates
     const { data: profile } = await supabase.from("profiles").select("tier").eq("id", user.id).single();
@@ -128,9 +133,14 @@ export async function createAgent(agent: any) {
       safeAgent.max_videos = Math.min(safeAgent.max_videos || 5, 5);
     }
 
+    const { duration, ...dbAgentData } = safeAgent as any;
+    let expires_at = null;
+    if (duration === '1_week') expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    else if (duration === '1_month') expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
     const { data, error } = await supabase
       .from("monitoring_configs")
-      .insert([{ ...safeAgent, user_id: user.id }])
+      .insert([{ ...dbAgentData, expires_at, user_id: user.id }])
       .select()
       .single();
 

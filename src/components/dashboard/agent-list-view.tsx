@@ -50,6 +50,7 @@ interface Agent {
   agent_type?: 'youtube' | 'job';
   location?: string;
   frequency_days?: number;
+  expires_at?: string | null;
 }
 
 interface AgentListViewProps {
@@ -79,7 +80,17 @@ function getRelativeTime(dateString: string) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function getTimeUntil(dateString: string) {
+  const now = new Date();
+  const date = new Date(dateString);
+  const diffInMs = date.getTime() - now.getTime();
+  if (diffInMs <= 0) return 'Expired';
+  const diffInDays = Math.ceil(diffInMs / (1000 * 60 * 60 * 24));
+  return `in ${diffInDays} day${diffInDays > 1 ? 's' : ''}`;
+}
+
 function getNextRunText(agent: Agent) {
+  if (agent.expires_at && new Date(agent.expires_at).getTime() < new Date().getTime()) return 'Expired';
   if (!agent.is_active) return 'Paused';
   const tz = agent.timezone || 'Asia/Dhaka';
   const now = new Date();
@@ -505,9 +516,26 @@ export function AgentListView({ agentType, title, description, defaultModalType 
                     <div className="flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-black bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.05)]">
                       <Clock className="w-3.5 h-3.5 flex-shrink-0 animate-pulse" />
                       <span className="animate-in fade-in slide-in-from-left-1 duration-500 tracking-wide uppercase">
-                        {mounted ? getNextRunText(agent) : 'Calculatng...'}
+                        {mounted ? getNextRunText(agent) : 'Calculating...'}
                       </span>
                     </div>
+
+                    {/* EXPIRATION INFO */}
+                    {agent.expires_at && (
+                      <div className={cn(
+                        "flex items-center gap-2 p-1.5 px-2 rounded-lg text-[11px] font-black border",
+                        new Date(agent.expires_at).getTime() < new Date().getTime()
+                          ? "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                          : "bg-amber-500/10 border-amber-500/20 text-amber-500"
+                      )}>
+                        <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>
+                          {new Date(agent.expires_at).getTime() < new Date().getTime() 
+                            ? "Expired" 
+                            : `Expires ${mounted ? getTimeUntil(agent.expires_at) : '...'}`}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Mail & Schedule Info */}

@@ -21,6 +21,7 @@ export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube', use
   const [time, setTime] = useState('06:00');
   const [maxVideos, setMaxVideos] = useState(10);
   const [frequencyDays, setFrequencyDays] = useState(1);
+  const [duration, setDuration] = useState<'1_week' | '1_month' | 'forever'>('forever');
   const [loading, setLoading] = useState(false);
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Dhaka');
 
@@ -51,9 +52,10 @@ export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube', use
       preferred_time: time.length === 5 ? time + ':00' : time,
       recipient_email: recipientEmail,
       max_videos: maxVideos,
-      is_active: true,
+      is_active: false,
       timezone: timezone,
       frequency_days: frequencyDays,
+      duration: duration,
     });
 
     if (!result.success) {
@@ -174,58 +176,78 @@ export function AddAgentModal({ onClose, onSuccess, defaultType = 'youtube', use
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
-                <Clock className="w-3.5 h-3.5" /> Daily Time
-              </label>
-              <input
-                type="time"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-5 outline-none focus:border-primary/50 transition-all font-black text-white [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                required
-              />
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
+                  <Clock className="w-3.5 h-3.5" /> Daily Time
+                </label>
+                <input
+                  type="time"
+                  className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-5 outline-none focus:border-primary/50 transition-all font-black text-white [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
+                  <Calendar className="w-3.5 h-3.5" /> Frequency
+                  {userTier === 'free' && <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/20 text-primary border border-primary/20 text-[9px] translate-y-[-1px]">PRO</span>}
+                </label>
+                <select
+                  className={cn(
+                    "w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-3 outline-none focus:border-primary/50 transition-all font-black appearance-none",
+                    userTier === 'free' ? "text-primary/70 cursor-not-allowed bg-black/20" : "text-white cursor-pointer"
+                  )}
+                  value={userTier === 'free' ? 3 : frequencyDays}
+                  onChange={(e) => setFrequencyDays(Number(e.target.value))}
+                  disabled={userTier === 'free'}
+                  required
+                >
+                  {userTier === 'free' ? (
+                    <option value={3} className="bg-background text-primary">Every 3 Days</option>
+                  ) : (
+                    <>
+                      <option value={1} className="bg-background text-white">Daily</option>
+                      <option value={3} className="bg-background text-white">Every 3 Days</option>
+                      <option value={7} className="bg-background text-white">Weekly</option>
+                    </>
+                  )}
+                </select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
-                <Calendar className="w-3.5 h-3.5" /> Frequency
-                {userTier === 'free' && <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/20 text-primary border border-primary/20 text-[9px] translate-y-[-1px]">PRO</span>}
-              </label>
-              <select
-                className={cn(
-                  "w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-3 outline-none focus:border-primary/50 transition-all font-black appearance-none",
-                  userTier === 'free' ? "text-primary/70 cursor-not-allowed bg-black/20" : "text-white cursor-pointer"
-                )}
-                value={userTier === 'free' ? 3 : frequencyDays}
-                onChange={(e) => setFrequencyDays(Number(e.target.value))}
-                disabled={userTier === 'free'}
-                required
-              >
-                {userTier === 'free' ? (
-                  <option value={3} className="bg-background text-primary">Every 3 Days</option>
-                ) : (
-                  <>
-                    <option value={1} className="bg-background text-white">Daily</option>
-                    <option value={3} className="bg-background text-white">Every 3 Days</option>
-                    <option value={7} className="bg-background text-white">Weekly</option>
-                  </>
-                )}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
-                <Video className="w-3.5 h-3.5" /> Max Results
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-5 outline-none focus:border-primary/50 transition-all font-black text-white"
-                value={maxVideos}
-                onChange={(e) => setMaxVideos(Number(e.target.value))}
-                required
-              />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
+                  <Calendar className="w-3.5 h-3.5" /> Run For
+                </label>
+                <select
+                  className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-3 outline-none focus:border-primary/50 transition-all font-black appearance-none text-white cursor-pointer"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value as any)}
+                  required
+                >
+                  <option value="1_week" className="bg-background text-white">1 Week</option>
+                  <option value="1_month" className="bg-background text-white">1 Month</option>
+                  <option value="forever" className="bg-background text-white">Forever</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400">
+                  <Video className="w-3.5 h-3.5" /> Max Results
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-3.5 px-5 outline-none focus:border-primary/50 transition-all font-black text-white"
+                  value={maxVideos}
+                  onChange={(e) => setMaxVideos(Number(e.target.value))}
+                  required
+                />
+              </div>
             </div>
           </div>
 
